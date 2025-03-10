@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
+import org.springframework.core.ResolvableType;
 import org.springframework.security.access.hierarchicalroles.NullRoleHierarchy;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
 import org.springframework.security.authorization.AuthenticatedAuthorizationManager;
@@ -32,9 +33,9 @@ import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationEventPublisher;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.authorization.AuthorizationManagers;
-import org.springframework.security.authorization.ObservationAuthorizationManager;
+import org.springframework.security.authorization.SingleResultAuthorizationManager;
 import org.springframework.security.authorization.SpringAuthorizationEventPublisher;
-import org.springframework.security.config.annotation.ObjectPostProcessor;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.AbstractRequestMatcherRegistry;
 import org.springframework.security.config.annotation.web.HttpSecurityBuilder;
 import org.springframework.security.config.core.GrantedAuthorityDefaults;
@@ -57,9 +58,6 @@ import org.springframework.util.function.SingletonSupplier;
 public final class AuthorizeHttpRequestsConfigurer<H extends HttpSecurityBuilder<H>>
 		extends AbstractHttpConfigurer<AuthorizeHttpRequestsConfigurer<H>, H> {
 
-	static final AuthorizationManager<RequestAuthorizationContext> permitAllAuthorizationManager = (a,
-			o) -> new AuthorizationDecision(true);
-
 	private final AuthorizationManagerRequestMatcherRegistry registry;
 
 	private final AuthorizationEventPublisher publisher;
@@ -67,6 +65,9 @@ public final class AuthorizeHttpRequestsConfigurer<H extends HttpSecurityBuilder
 	private final Supplier<RoleHierarchy> roleHierarchy;
 
 	private String rolePrefix = "ROLE_";
+
+	private ObjectPostProcessor<AuthorizationManager<HttpServletRequest>> postProcessor = ObjectPostProcessor
+		.identity();
 
 	/**
 	 * Creates an instance.
@@ -87,6 +88,11 @@ public final class AuthorizeHttpRequestsConfigurer<H extends HttpSecurityBuilder
 			GrantedAuthorityDefaults grantedAuthorityDefaults = context.getBean(GrantedAuthorityDefaults.class);
 			this.rolePrefix = grantedAuthorityDefaults.getRolePrefix();
 		}
+		ResolvableType type = ResolvableType.forClassWithGenerics(ObjectPostProcessor.class,
+				ResolvableType.forClassWithGenerics(AuthorizationManager.class, HttpServletRequest.class));
+		ObjectProvider<ObjectPostProcessor<AuthorizationManager<HttpServletRequest>>> provider = context
+			.getBeanProvider(type);
+		provider.ifUnique((postProcessor) -> this.postProcessor = postProcessor);
 	}
 
 	/**
@@ -121,17 +127,6 @@ public final class AuthorizeHttpRequestsConfigurer<H extends HttpSecurityBuilder
 			AuthorizationManager<RequestAuthorizationContext> manager) {
 		this.registry.addFirst(matcher, manager);
 		return this.registry;
-	}
-
-	private ObservationRegistry getObservationRegistry() {
-		ApplicationContext context = getBuilder().getSharedObject(ApplicationContext.class);
-		String[] names = context.getBeanNamesForType(ObservationRegistry.class);
-		if (names.length == 1) {
-			return context.getBean(ObservationRegistry.class);
-		}
-		else {
-			return ObservationRegistry.NOOP;
-		}
 	}
 
 	/**
@@ -173,12 +168,9 @@ public final class AuthorizeHttpRequestsConfigurer<H extends HttpSecurityBuilder
 							+ ". Try completing it with something like requestUrls().<something>.hasRole('USER')");
 			Assert.state(this.mappingCount > 0,
 					"At least one mapping is required (for example, authorizeHttpRequests().anyRequest().authenticated())");
-			ObservationRegistry registry = getObservationRegistry();
-			RequestMatcherDelegatingAuthorizationManager manager = postProcess(this.managerBuilder.build());
-			if (registry.isNoop()) {
-				return manager;
-			}
-			return new ObservationAuthorizationManager<>(registry, manager);
+			AuthorizationManager<HttpServletRequest> manager = postProcess(
+					(AuthorizationManager<HttpServletRequest>) this.managerBuilder.build());
+			return AuthorizeHttpRequestsConfigurer.this.postProcessor.postProcess(manager);
 		}
 
 		@Override
@@ -195,6 +187,16 @@ public final class AuthorizeHttpRequestsConfigurer<H extends HttpSecurityBuilder
 		 */
 		public AuthorizationManagerRequestMatcherRegistry withObjectPostProcessor(
 				ObjectPostProcessor<?> objectPostProcessor) {
+			addObjectPostProcessor(objectPostProcessor);
+			return this;
+		}
+
+		/**
+		 * @deprecated
+		 */
+		@Deprecated(since = "6.4", forRemoval = true)
+		public AuthorizationManagerRequestMatcherRegistry withObjectPostProcessor(
+				org.springframework.security.config.annotation.ObjectPostProcessor<?> objectPostProcessor) {
 			addObjectPostProcessor(objectPostProcessor);
 			return this;
 		}
@@ -283,7 +285,7 @@ public final class AuthorizeHttpRequestsConfigurer<H extends HttpSecurityBuilder
 		 * customizations
 		 */
 		public AuthorizationManagerRequestMatcherRegistry permitAll() {
-			return access(permitAllAuthorizationManager);
+			return access(SingleResultAuthorizationManager.permitAll());
 		}
 
 		/**
@@ -292,7 +294,7 @@ public final class AuthorizeHttpRequestsConfigurer<H extends HttpSecurityBuilder
 		 * customizations
 		 */
 		public AuthorizationManagerRequestMatcherRegistry denyAll() {
-			return access((a, o) -> new AuthorizationDecision(false));
+			return access(SingleResultAuthorizationManager.denyAll());
 		}
 
 		/**

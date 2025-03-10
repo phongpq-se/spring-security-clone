@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-import org.springframework.security.web.util.CssUtils;
+import org.springframework.security.web.authentication.ott.OneTimeTokenAuthenticationFilter;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.util.Assert;
@@ -44,11 +44,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 public final class DefaultOneTimeTokenSubmitPageGeneratingFilter extends OncePerRequestFilter {
 
-	private RequestMatcher requestMatcher = new AntPathRequestMatcher("/login/ott", "GET");
+	public static final String DEFAULT_SUBMIT_PAGE_URL = "/login/ott";
+
+	private RequestMatcher requestMatcher = new AntPathRequestMatcher(DEFAULT_SUBMIT_PAGE_URL, "GET");
 
 	private Function<HttpServletRequest, Map<String, String>> resolveHiddenInputs = (request) -> Collections.emptyMap();
 
-	private String loginProcessingUrl = "/login/ott";
+	private String loginProcessingUrl = OneTimeTokenAuthenticationFilter.DEFAULT_LOGIN_PROCESSING_URL;
 
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -64,9 +66,10 @@ public final class DefaultOneTimeTokenSubmitPageGeneratingFilter extends OncePer
 	}
 
 	private String generateHtml(HttpServletRequest request) {
+		String contextPath = request.getContextPath();
+
 		String token = request.getParameter("token");
 		String tokenValue = StringUtils.hasText(token) ? token : "";
-		String contextPath = request.getContextPath();
 
 		String hiddenInputs = this.resolveHiddenInputs.apply(request)
 			.entrySet()
@@ -75,7 +78,7 @@ public final class DefaultOneTimeTokenSubmitPageGeneratingFilter extends OncePer
 			.collect(Collectors.joining("\n"));
 
 		return HtmlTemplates.fromTemplate(ONE_TIME_TOKEN_SUBMIT_PAGE_TEMPLATE)
-			.withRawHtml("cssStyle", CssUtils.getCssStyleBlock().indent(4))
+			.withValue("contextPath", contextPath)
 			.withValue("tokenValue", tokenValue)
 			.withValue("loginProcessingUrl", contextPath + this.loginProcessingUrl)
 			.withRawHtml("hiddenInputs", hiddenInputs)
@@ -89,11 +92,21 @@ public final class DefaultOneTimeTokenSubmitPageGeneratingFilter extends OncePer
 			.render();
 	}
 
+	/**
+	 * Sets a Function used to resolve a Map of the hidden inputs where the key is the
+	 * name of the input and the value is the value of the input.
+	 * @param resolveHiddenInputs the function to resolve the inputs
+	 */
 	public void setResolveHiddenInputs(Function<HttpServletRequest, Map<String, String>> resolveHiddenInputs) {
 		Assert.notNull(resolveHiddenInputs, "resolveHiddenInputs cannot be null");
 		this.resolveHiddenInputs = resolveHiddenInputs;
 	}
 
+	/**
+	 * Use this {@link RequestMatcher} to choose whether this filter will handle the
+	 * request. By default, it handles {@code /login/ott}.
+	 * @param requestMatcher the {@link RequestMatcher} to use
+	 */
 	public void setRequestMatcher(RequestMatcher requestMatcher) {
 		Assert.notNull(requestMatcher, "requestMatcher cannot be null");
 		this.requestMatcher = requestMatcher;
@@ -116,7 +129,7 @@ public final class DefaultOneTimeTokenSubmitPageGeneratingFilter extends OncePer
 			    <title>One-Time Token Login</title>
 			    <meta charset="utf-8"/>
 			    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
-			{{cssStyle}}
+			    <link href="{{contextPath}}/default-ui.css" rel="stylesheet" />
 			  </head>
 			  <body>
 			    <div class="container">

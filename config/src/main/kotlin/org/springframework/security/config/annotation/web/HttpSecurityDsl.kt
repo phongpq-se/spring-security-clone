@@ -527,10 +527,45 @@ class HttpSecurityDsl(private val http: HttpSecurity, private val init: HttpSecu
      * @param requiresChannelConfiguration custom configuration that specifies
      * channel security
      * @see [RequiresChannelDsl]
+     * @deprecated please use [redirectToHttps] instead
      */
+    @Deprecated(message="since 6.5 use redirectToHttps instead")
     fun requiresChannel(requiresChannelConfiguration: RequiresChannelDsl.() -> Unit) {
         val requiresChannelCustomizer = RequiresChannelDsl().apply(requiresChannelConfiguration).get()
         this.http.requiresChannel(requiresChannelCustomizer)
+    }
+
+    /**
+     * Configures channel security. In order for this configuration to be useful at least
+     * one mapping to a required channel must be provided.
+     *
+     * Example:
+     *
+     * The example below demonstrates how to require HTTPS for every request. Only
+     * requiring HTTPS for some requests is supported, for example if you need to differentiate
+     * between local and production deployments.
+     *
+     * ```
+     * @Configuration
+     * @EnableWebSecurity
+     * class RequireHttpsConfig {
+     *
+     * 	@Bean
+     * 	fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
+     * 		http {
+     * 			redirectToHttps { }
+     * 		}
+     * 		return http.build();
+     * 	}
+     * }
+     * ```
+     * @param httpsRedirectConfiguration custom configuration to apply to HTTPS redirect rules
+     * @see [HttpsRedirectDsl]
+     * @since 6.5
+     */
+    fun redirectToHttps(httpsRedirectConfiguration: HttpsRedirectDsl.() -> Unit) {
+        val httpsRedirectCustomizer = HttpsRedirectDsl().apply(httpsRedirectConfiguration).get()
+        this.http.redirectToHttps(httpsRedirectCustomizer)
     }
 
     /**
@@ -985,7 +1020,7 @@ class HttpSecurityDsl(private val http: HttpSecurity, private val init: HttpSecu
      *    fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
      *        http {
      *               oneTimeTokenLogin {
-     *                     generatedOneTimeTokenHandler = MyMagicLinkGeneratedOneTimeTokenHandler()
+     *                     oneTimeTokenGenerationSuccessHandler = MyMagicLinkOneTimeTokenGenerationSuccessHandler()
      *                }
      *             }
      *        return http.build()
@@ -1029,6 +1064,37 @@ class HttpSecurityDsl(private val http: HttpSecurity, private val init: HttpSecu
     fun rememberMe(rememberMeConfiguration: RememberMeDsl.() -> Unit) {
         val rememberMeCustomizer = RememberMeDsl().apply(rememberMeConfiguration).get()
         this.http.rememberMe(rememberMeCustomizer)
+    }
+
+    /**
+     * Enable WebAuthn configuration.
+     *
+     * Example:
+     *
+     * ```
+     * @Configuration
+     * @EnableWebSecurity
+     * class SecurityConfig {
+     *
+     *     @Bean
+     *     fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
+     *         http {
+     *             webAuthn {
+     *                 loginPage = "/log-in"
+     *             }
+     *         }
+     *         return http.build()
+     *     }
+     * }
+     * ```
+     *
+     * @param webAuthnConfiguration custom configurations to be applied
+     * to the WebAuthn authentication
+     * @see [WebAuthnDsl]
+     */
+    fun webAuthn(webAuthnConfiguration: WebAuthnDsl.() -> Unit) {
+        val webAuthnCustomizer = WebAuthnDsl().apply(webAuthnConfiguration).get()
+        this.http.webAuthn(webAuthnCustomizer)
     }
 
     /**

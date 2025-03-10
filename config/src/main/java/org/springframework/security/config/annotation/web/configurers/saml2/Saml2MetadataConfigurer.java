@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import org.opensaml.core.Version;
 
 import org.springframework.context.ApplicationContext;
 import org.springframework.security.config.annotation.web.HttpSecurityBuilder;
+import org.springframework.security.config.annotation.web.RequestMatcherFactory;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.saml2.provider.service.metadata.OpenSaml4MetadataResolver;
@@ -32,7 +33,6 @@ import org.springframework.security.saml2.provider.service.registration.RelyingP
 import org.springframework.security.saml2.provider.service.web.Saml2MetadataFilter;
 import org.springframework.security.saml2.provider.service.web.metadata.RequestMatcherMetadataResponseResolver;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.util.Assert;
 
 /**
@@ -111,12 +111,12 @@ public class Saml2MetadataConfigurer<H extends HttpSecurityBuilder<H>>
 			if (USE_OPENSAML_5) {
 				RequestMatcherMetadataResponseResolver metadata = new RequestMatcherMetadataResponseResolver(
 						registrations, new OpenSaml5MetadataResolver());
-				metadata.setRequestMatcher(new AntPathRequestMatcher(metadataUrl));
+				metadata.setRequestMatcher(RequestMatcherFactory.matcher(metadataUrl));
 				return metadata;
 			}
 			RequestMatcherMetadataResponseResolver metadata = new RequestMatcherMetadataResponseResolver(registrations,
 					new OpenSaml4MetadataResolver());
-			metadata.setRequestMatcher(new AntPathRequestMatcher(metadataUrl));
+			metadata.setRequestMatcher(RequestMatcherFactory.matcher(metadataUrl));
 			return metadata;
 		};
 		return this;
@@ -174,10 +174,7 @@ public class Saml2MetadataConfigurer<H extends HttpSecurityBuilder<H>>
 		if (this.context == null) {
 			return null;
 		}
-		if (this.context.getBeanNamesForType(clazz).length == 0) {
-			return null;
-		}
-		return this.context.getBean(clazz);
+		return this.context.getBeanProvider(clazz).getIfAvailable();
 	}
 
 }

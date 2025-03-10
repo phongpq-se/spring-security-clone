@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -86,6 +86,7 @@ import org.springframework.util.Assert;
  *
  * @author Joe Grandja
  * @author Parikshit Dutta
+ * @author Ngoc Nhan
  * @since 5.1
  * @see OAuth2AuthorizationRequestRedirectFilter
  * @see OAuth2AuthorizationCodeGrantFilter
@@ -98,6 +99,10 @@ public final class OAuth2ClientConfigurer<B extends HttpSecurityBuilder<B>>
 
 	private AuthorizationCodeGrantConfigurer authorizationCodeGrantConfigurer = new AuthorizationCodeGrantConfigurer();
 
+	private ClientRegistrationRepository clientRegistrationRepository;
+
+	private OAuth2AuthorizedClientRepository authorizedClientRepository;
+
 	/**
 	 * Sets the repository of client registrations.
 	 * @param clientRegistrationRepository the repository of client registrations
@@ -107,6 +112,7 @@ public final class OAuth2ClientConfigurer<B extends HttpSecurityBuilder<B>>
 			ClientRegistrationRepository clientRegistrationRepository) {
 		Assert.notNull(clientRegistrationRepository, "clientRegistrationRepository cannot be null");
 		this.getBuilder().setSharedObject(ClientRegistrationRepository.class, clientRegistrationRepository);
+		this.clientRegistrationRepository = clientRegistrationRepository;
 		return this;
 	}
 
@@ -119,6 +125,7 @@ public final class OAuth2ClientConfigurer<B extends HttpSecurityBuilder<B>>
 			OAuth2AuthorizedClientRepository authorizedClientRepository) {
 		Assert.notNull(authorizedClientRepository, "authorizedClientRepository cannot be null");
 		this.getBuilder().setSharedObject(OAuth2AuthorizedClientRepository.class, authorizedClientRepository);
+		this.authorizedClientRepository = authorizedClientRepository;
 		return this;
 	}
 
@@ -283,8 +290,7 @@ public final class OAuth2ClientConfigurer<B extends HttpSecurityBuilder<B>>
 			if (this.authorizationRequestResolver != null) {
 				return this.authorizationRequestResolver;
 			}
-			ClientRegistrationRepository clientRegistrationRepository = OAuth2ClientConfigurerUtils
-				.getClientRegistrationRepository(getBuilder());
+			ClientRegistrationRepository clientRegistrationRepository = getClientRegistrationRepository(getBuilder());
 			ResolvableType resolvableType = ResolvableType.forClass(OAuth2AuthorizationRequestResolver.class);
 			OAuth2AuthorizationRequestResolver bean = getBeanOrNull(resolvableType);
 			return (bean != null) ? bean : new DefaultOAuth2AuthorizationRequestResolver(clientRegistrationRepository,
@@ -294,8 +300,8 @@ public final class OAuth2ClientConfigurer<B extends HttpSecurityBuilder<B>>
 		private OAuth2AuthorizationCodeGrantFilter createAuthorizationCodeGrantFilter(B builder) {
 			AuthenticationManager authenticationManager = builder.getSharedObject(AuthenticationManager.class);
 			OAuth2AuthorizationCodeGrantFilter authorizationCodeGrantFilter = new OAuth2AuthorizationCodeGrantFilter(
-					OAuth2ClientConfigurerUtils.getClientRegistrationRepository(builder),
-					OAuth2ClientConfigurerUtils.getAuthorizedClientRepository(builder), authenticationManager);
+					getClientRegistrationRepository(builder), getAuthorizedClientRepository(builder),
+					authenticationManager);
 			if (this.authorizationRequestRepository != null) {
 				authorizationCodeGrantFilter.setAuthorizationRequestRepository(this.authorizationRequestRepository);
 			}
@@ -317,16 +323,25 @@ public final class OAuth2ClientConfigurer<B extends HttpSecurityBuilder<B>>
 			return (bean != null) ? bean : new DefaultAuthorizationCodeTokenResponseClient();
 		}
 
+		private ClientRegistrationRepository getClientRegistrationRepository(B builder) {
+			return (OAuth2ClientConfigurer.this.clientRegistrationRepository != null)
+					? OAuth2ClientConfigurer.this.clientRegistrationRepository
+					: OAuth2ClientConfigurerUtils.getClientRegistrationRepository(builder);
+		}
+
+		private OAuth2AuthorizedClientRepository getAuthorizedClientRepository(B builder) {
+			return (OAuth2ClientConfigurer.this.authorizedClientRepository != null)
+					? OAuth2ClientConfigurer.this.authorizedClientRepository
+					: OAuth2ClientConfigurerUtils.getAuthorizedClientRepository(builder);
+		}
+
 		@SuppressWarnings("unchecked")
 		private <T> T getBeanOrNull(ResolvableType type) {
 			ApplicationContext context = getBuilder().getSharedObject(ApplicationContext.class);
-			if (context != null) {
-				String[] names = context.getBeanNamesForType(type);
-				if (names.length == 1) {
-					return (T) context.getBean(names[0]);
-				}
+			if (context == null) {
+				return null;
 			}
-			return null;
+			return (T) context.getBeanProvider(type).getIfUnique();
 		}
 
 	}

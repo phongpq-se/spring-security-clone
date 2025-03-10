@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import io.micrometer.observation.ObservationRegistry;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -30,21 +29,23 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.OrderComparator;
 import org.springframework.core.Ordered;
+import org.springframework.core.ResolvableType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
-import org.springframework.security.authentication.ObservationAuthenticationManager;
 import org.springframework.security.config.Customizer;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.AbstractConfiguredSecurityBuilder;
-import org.springframework.security.config.annotation.ObjectPostProcessor;
 import org.springframework.security.config.annotation.SecurityBuilder;
 import org.springframework.security.config.annotation.SecurityConfigurer;
 import org.springframework.security.config.annotation.SecurityConfigurerAdapter;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.AbstractRequestMatcherRegistry;
 import org.springframework.security.config.annotation.web.HttpSecurityBuilder;
+import org.springframework.security.config.annotation.web.RequestMatcherFactory;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfiguration;
 import org.springframework.security.config.annotation.web.configurers.AnonymousConfigurer;
@@ -58,6 +59,7 @@ import org.springframework.security.config.annotation.web.configurers.Expression
 import org.springframework.security.config.annotation.web.configurers.FormLoginConfigurer;
 import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.annotation.web.configurers.HttpBasicConfigurer;
+import org.springframework.security.config.annotation.web.configurers.HttpsRedirectConfigurer;
 import org.springframework.security.config.annotation.web.configurers.JeeConfigurer;
 import org.springframework.security.config.annotation.web.configurers.LogoutConfigurer;
 import org.springframework.security.config.annotation.web.configurers.PasswordManagementConfigurer;
@@ -67,6 +69,7 @@ import org.springframework.security.config.annotation.web.configurers.RequestCac
 import org.springframework.security.config.annotation.web.configurers.SecurityContextConfigurer;
 import org.springframework.security.config.annotation.web.configurers.ServletApiConfigurer;
 import org.springframework.security.config.annotation.web.configurers.SessionManagementConfigurer;
+import org.springframework.security.config.annotation.web.configurers.WebAuthnConfigurer;
 import org.springframework.security.config.annotation.web.configurers.X509Configurer;
 import org.springframework.security.config.annotation.web.configurers.oauth2.client.OAuth2ClientConfigurer;
 import org.springframework.security.config.annotation.web.configurers.oauth2.client.OAuth2LoginConfigurer;
@@ -139,6 +142,7 @@ import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
  *
  * @author Rob Winch
  * @author Joe Grandja
+ * @author Ngoc Nhan
  * @since 3.2
  * @see EnableWebSecurity
  */
@@ -175,6 +179,23 @@ public final class HttpSecurity extends AbstractConfiguredSecurityBuilder<Defaul
 	 */
 	@SuppressWarnings("unchecked")
 	public HttpSecurity(ObjectPostProcessor<Object> objectPostProcessor,
+			AuthenticationManagerBuilder authenticationBuilder, Map<Class<?>, Object> sharedObjects) {
+		super(objectPostProcessor);
+		Assert.notNull(authenticationBuilder, "authenticationBuilder cannot be null");
+		setSharedObject(AuthenticationManagerBuilder.class, authenticationBuilder);
+		for (Map.Entry<Class<?>, Object> entry : sharedObjects.entrySet()) {
+			setSharedObject((Class<Object>) entry.getKey(), entry.getValue());
+		}
+		ApplicationContext context = (ApplicationContext) sharedObjects.get(ApplicationContext.class);
+		this.requestMatcherConfigurer = new RequestMatcherConfigurer(context);
+	}
+
+	/**
+	 * @deprecated
+	 */
+	@Deprecated(since = "6.4", forRemoval = true)
+	@SuppressWarnings("unchecked")
+	public HttpSecurity(org.springframework.security.config.annotation.ObjectPostProcessor<Object> objectPostProcessor,
 			AuthenticationManagerBuilder authenticationBuilder, Map<Class<?>, Object> sharedObjects) {
 		super(objectPostProcessor);
 		Assert.notNull(authenticationBuilder, "authenticationBuilder cannot be null");
@@ -1112,9 +1133,10 @@ public final class HttpSecurity extends AbstractConfiguredSecurityBuilder<Defaul
 	 * </pre>
 	 * @return the {@link ExpressionUrlAuthorizationConfigurer} for further customizations
 	 * @throws Exception
-	 * @deprecated For removal in 7.0. Use {@link #authorizeHttpRequests()} instead
+	 * @deprecated For removal in 7.0. Use {@link #authorizeHttpRequests(Customizer)}
+	 * instead
 	 */
-	@Deprecated
+	@Deprecated(since = "6.1", forRemoval = true)
 	public ExpressionUrlAuthorizationConfigurer<HttpSecurity>.ExpressionInterceptUrlRegistry authorizeRequests()
 			throws Exception {
 		ApplicationContext context = getContext();
@@ -1227,9 +1249,10 @@ public final class HttpSecurity extends AbstractConfiguredSecurityBuilder<Defaul
 	 * for the {@link ExpressionUrlAuthorizationConfigurer.ExpressionInterceptUrlRegistry}
 	 * @return the {@link HttpSecurity} for further customizations
 	 * @throws Exception
-	 * @deprecated For removal in 7.0. Use {@link #authorizeHttpRequests} instead
+	 * @deprecated For removal in 7.0. Use {@link #authorizeHttpRequests(Customizer)}
+	 * instead
 	 */
-	@Deprecated
+	@Deprecated(since = "6.1", forRemoval = true)
 	public HttpSecurity authorizeRequests(
 			Customizer<ExpressionUrlAuthorizationConfigurer<HttpSecurity>.ExpressionInterceptUrlRegistry> authorizeRequestsCustomizer)
 			throws Exception {
@@ -3000,8 +3023,8 @@ public final class HttpSecurity extends AbstractConfiguredSecurityBuilder<Defaul
 	 * 	}
 	 *
 	 * 	&#064;Bean
-	 * 	public GeneratedOneTimeTokenHandler generatedOneTimeTokenHandler() {
-	 * 		return new MyMagicLinkGeneratedOneTimeTokenHandler();
+	 * 	public OneTimeTokenGenerationSuccessHandler oneTimeTokenGenerationSuccessHandler() {
+	 * 		return new MyMagicLinkOneTimeTokenGenerationSuccessHandler();
 	 * 	}
 	 *
 	 * }
@@ -3114,12 +3137,61 @@ public final class HttpSecurity extends AbstractConfiguredSecurityBuilder<Defaul
 	 * the {@link ChannelSecurityConfigurer.ChannelRequestMatcherRegistry}
 	 * @return the {@link HttpSecurity} for further customizations
 	 * @throws Exception
+	 * @deprecated Use {@link #redirectToHttps}
 	 */
+	@Deprecated
 	public HttpSecurity requiresChannel(
 			Customizer<ChannelSecurityConfigurer<HttpSecurity>.ChannelRequestMatcherRegistry> requiresChannelCustomizer)
 			throws Exception {
 		ApplicationContext context = getContext();
 		requiresChannelCustomizer.customize(getOrApply(new ChannelSecurityConfigurer<>(context)).getRegistry());
+		return HttpSecurity.this;
+	}
+
+	/**
+	 * Configures channel security. In order for this configuration to be useful at least
+	 * one mapping to a required channel must be provided.
+	 *
+	 * <h2>Example Configuration</h2>
+	 *
+	 * The example below demonstrates how to require HTTPS for every request. Only
+	 * requiring HTTPS for some requests is supported, for example if you need to
+	 * differentiate between local and production deployments.
+	 *
+	 * <pre>
+	 * &#064;Configuration
+	 * &#064;EnableWebSecurity
+	 * public class RequireHttpsConfig {
+	 *
+	 * 	&#064;Bean
+	 * 	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+	 * 		http
+	 * 			.authorizeHttpRequests((authorize) -&gt; authorize
+	 * 				anyRequest().authenticated()
+	 * 			)
+	 * 			.formLogin(withDefaults())
+	 * 			.redirectToHttps(withDefaults());
+	 * 		return http.build();
+	 * 	}
+	 *
+	 * 	&#064;Bean
+	 * 	public UserDetailsService userDetailsService() {
+	 * 		UserDetails user = User.withDefaultPasswordEncoder()
+	 * 			.username(&quot;user&quot;)
+	 * 			.password(&quot;password&quot;)
+	 * 			.roles(&quot;USER&quot;)
+	 * 			.build();
+	 * 		return new InMemoryUserDetailsManager(user);
+	 * 	}
+	 * }
+	 * </pre>
+	 * @param httpsRedirectConfigurerCustomizer the {@link Customizer} to provide more
+	 * options for the {@link HttpsRedirectConfigurer}
+	 * @return the {@link HttpSecurity} for further customizations
+	 */
+	public HttpSecurity redirectToHttps(
+			Customizer<HttpsRedirectConfigurer<HttpSecurity>> httpsRedirectConfigurerCustomizer) throws Exception {
+		httpsRedirectConfigurerCustomizer.customize(getOrApply(new HttpsRedirectConfigurer<>()));
 		return HttpSecurity.this;
 	}
 
@@ -3276,13 +3348,10 @@ public final class HttpSecurity extends AbstractConfiguredSecurityBuilder<Defaul
 			setSharedObject(AuthenticationManager.class, this.authenticationManager);
 		}
 		else {
-			ObservationRegistry registry = getObservationRegistry();
+			ObjectPostProcessor<AuthenticationManager> postProcessor = getAuthenticationManagerPostProcessor();
 			AuthenticationManager manager = getAuthenticationRegistry().build();
-			if (!registry.isNoop() && manager != null) {
-				setSharedObject(AuthenticationManager.class, new ObservationAuthenticationManager(registry, manager));
-			}
-			else {
-				setSharedObject(AuthenticationManager.class, manager);
+			if (manager != null) {
+				setSharedObject(AuthenticationManager.class, postProcessor.postProcess(manager));
 			}
 		}
 	}
@@ -3666,24 +3735,53 @@ public final class HttpSecurity extends AbstractConfiguredSecurityBuilder<Defaul
 	 * @see MvcRequestMatcher
 	 */
 	public HttpSecurity securityMatcher(String... patterns) {
-		if (mvcPresent) {
-			this.requestMatcher = new OrRequestMatcher(createMvcMatchers(patterns));
-			return this;
+		List<RequestMatcher> matchers = new ArrayList<>();
+		for (String pattern : patterns) {
+			if (RequestMatcherFactory.usesPathPatterns()) {
+				matchers.add(RequestMatcherFactory.matcher(pattern));
+			}
+			else {
+				RequestMatcher matcher = mvcPresent ? createMvcMatcher(pattern) : createAntMatcher(pattern);
+				matchers.add(matcher);
+			}
 		}
-		this.requestMatcher = new OrRequestMatcher(createAntMatchers(patterns));
+		this.requestMatcher = new OrRequestMatcher(matchers);
 		return this;
 	}
 
-	private List<RequestMatcher> createAntMatchers(String... patterns) {
-		List<RequestMatcher> matchers = new ArrayList<>(patterns.length);
-		for (String pattern : patterns) {
-			matchers.add(new AntPathRequestMatcher(pattern));
-		}
-		return matchers;
+	/**
+	 * Specifies webAuthn/passkeys based authentication.
+	 *
+	 * <pre>
+	 * 	&#064;Bean
+	 * 	SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+	 * 		http
+	 * 			// ...
+	 * 			.webAuthn((webAuthn) -&gt; webAuthn
+	 * 				.rpName("Spring Security Relying Party")
+	 * 				.rpId("example.com")
+	 * 				.allowedOrigins("https://example.com")
+	 * 			);
+	 * 		return http.build();
+	 * 	}
+	 * </pre>
+	 * @param webAuthn the customizer to apply
+	 * @return the {@link HttpSecurity} for further customizations
+	 * @throws Exception
+	 */
+	public HttpSecurity webAuthn(Customizer<WebAuthnConfigurer<HttpSecurity>> webAuthn) throws Exception {
+		webAuthn.customize(getOrApply(new WebAuthnConfigurer<>()));
+		return HttpSecurity.this;
 	}
 
-	private List<RequestMatcher> createMvcMatchers(String... mvcPatterns) {
-		ObjectPostProcessor<Object> opp = getContext().getBean(ObjectPostProcessor.class);
+	private RequestMatcher createAntMatcher(String pattern) {
+		return new AntPathRequestMatcher(pattern);
+	}
+
+	private RequestMatcher createMvcMatcher(String mvcPattern) {
+		ResolvableType type = ResolvableType.forClassWithGenerics(ObjectPostProcessor.class, Object.class);
+		ObjectProvider<ObjectPostProcessor<Object>> postProcessors = getContext().getBeanProvider(type);
+		ObjectPostProcessor<Object> opp = postProcessors.getObject();
 		if (!getContext().containsBean(HANDLER_MAPPING_INTROSPECTOR_BEAN_NAME)) {
 			throw new NoSuchBeanDefinitionException("A Bean named " + HANDLER_MAPPING_INTROSPECTOR_BEAN_NAME
 					+ " of type " + HandlerMappingIntrospector.class.getName()
@@ -3691,13 +3789,9 @@ public final class HttpSecurity extends AbstractConfiguredSecurityBuilder<Defaul
 		}
 		HandlerMappingIntrospector introspector = getContext().getBean(HANDLER_MAPPING_INTROSPECTOR_BEAN_NAME,
 				HandlerMappingIntrospector.class);
-		List<RequestMatcher> matchers = new ArrayList<>(mvcPatterns.length);
-		for (String mvcPattern : mvcPatterns) {
-			MvcRequestMatcher matcher = new MvcRequestMatcher(introspector, mvcPattern);
-			opp.postProcess(matcher);
-			matchers.add(matcher);
-		}
-		return matchers;
+		MvcRequestMatcher matcher = new MvcRequestMatcher(introspector, mvcPattern);
+		opp.postProcess(matcher);
+		return matcher;
 	}
 
 	/**
@@ -3718,13 +3812,12 @@ public final class HttpSecurity extends AbstractConfiguredSecurityBuilder<Defaul
 		return apply(configurer);
 	}
 
-	private ObservationRegistry getObservationRegistry() {
+	private ObjectPostProcessor<AuthenticationManager> getAuthenticationManagerPostProcessor() {
 		ApplicationContext context = getContext();
-		String[] names = context.getBeanNamesForType(ObservationRegistry.class);
-		if (names.length == 1) {
-			return (ObservationRegistry) context.getBean(names[0]);
-		}
-		return ObservationRegistry.NOOP;
+		ResolvableType type = ResolvableType.forClassWithGenerics(ObjectPostProcessor.class,
+				AuthenticationManager.class);
+		ObjectProvider<ObjectPostProcessor<AuthenticationManager>> manager = context.getBeanProvider(type);
+		return manager.getIfUnique(ObjectPostProcessor::identity);
 	}
 
 	/**

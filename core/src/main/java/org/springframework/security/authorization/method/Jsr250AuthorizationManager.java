@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,8 @@ import org.springframework.lang.NonNull;
 import org.springframework.security.authorization.AuthoritiesAuthorizationManager;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationManager;
+import org.springframework.security.authorization.AuthorizationResult;
+import org.springframework.security.authorization.SingleResultAuthorizationManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.SecurityAnnotationScanner;
 import org.springframework.security.core.annotation.SecurityAnnotationScanners;
@@ -86,7 +88,9 @@ public final class Jsr250AuthorizationManager implements AuthorizationManager<Me
 	 * @param methodInvocation the {@link MethodInvocation} to check
 	 * @return an {@link AuthorizationDecision} or null if the JSR-250 security
 	 * annotations is not present
+	 * @deprecated please use {@link #authorize(Supplier, Object)} instead
 	 */
+	@Deprecated
 	@Override
 	public AuthorizationDecision check(Supplier<Authentication> authentication, MethodInvocation methodInvocation) {
 		AuthorizationManager<MethodInvocation> delegate = this.registry.getManager(methodInvocation);
@@ -103,14 +107,15 @@ public final class Jsr250AuthorizationManager implements AuthorizationManager<Me
 		AuthorizationManager<MethodInvocation> resolveManager(Method method, Class<?> targetClass) {
 			Annotation annotation = findJsr250Annotation(method, targetClass);
 			if (annotation instanceof DenyAll) {
-				return (a, o) -> new AuthorizationDecision(false);
+				return SingleResultAuthorizationManager.denyAll();
 			}
 			if (annotation instanceof PermitAll) {
-				return (a, o) -> new AuthorizationDecision(true);
+				return SingleResultAuthorizationManager.permitAll();
 			}
 			if (annotation instanceof RolesAllowed rolesAllowed) {
-				return (a, o) -> Jsr250AuthorizationManager.this.authoritiesAuthorizationManager.check(a,
-						getAllowedRolesWithPrefix(rolesAllowed));
+				return (AuthorizationManagerCheckAdapter<MethodInvocation>) (a,
+						o) -> Jsr250AuthorizationManager.this.authoritiesAuthorizationManager.authorize(a,
+								getAllowedRolesWithPrefix(rolesAllowed));
 			}
 			return NULL_MANAGER;
 		}
@@ -127,6 +132,25 @@ public final class Jsr250AuthorizationManager implements AuthorizationManager<Me
 			}
 			return roles;
 		}
+
+	}
+
+	private interface AuthorizationManagerCheckAdapter<T> extends AuthorizationManager<T> {
+
+		@Override
+		default AuthorizationDecision check(Supplier<Authentication> authentication, T object) {
+			AuthorizationResult result = authorize(authentication, object);
+			if (result == null) {
+				return null;
+			}
+			if (result instanceof AuthorizationDecision decision) {
+				return decision;
+			}
+			throw new IllegalArgumentException(
+					"please call #authorize or ensure that the result is of type AuthorizationDecision");
+		}
+
+		AuthorizationResult authorize(Supplier<Authentication> authentication, T object);
 
 	}
 

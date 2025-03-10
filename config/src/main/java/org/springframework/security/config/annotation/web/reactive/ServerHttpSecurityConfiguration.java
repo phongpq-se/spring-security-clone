@@ -16,7 +16,7 @@
 
 package org.springframework.security.config.annotation.web.reactive;
 
-import io.micrometer.observation.ObservationRegistry;
+import java.util.Map;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
@@ -29,10 +29,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 import org.springframework.context.expression.BeanFactoryResolver;
 import org.springframework.core.ReactiveAdapterRegistry;
-import org.springframework.security.authentication.ObservationReactiveAuthenticationManager;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.UserDetailsRepositoryReactiveAuthenticationManager;
 import org.springframework.security.authentication.password.ReactiveCompromisedPasswordChecker;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.core.annotation.AnnotationTemplateExpressionDefaults;
 import org.springframework.security.core.userdetails.ReactiveUserDetailsPasswordService;
@@ -67,7 +67,7 @@ class ServerHttpSecurityConfiguration {
 
 	private ReactiveCompromisedPasswordChecker compromisedPasswordChecker;
 
-	private ObservationRegistry observationRegistry = ObservationRegistry.NOOP;
+	private ObjectPostProcessor<ReactiveAuthenticationManager> postProcessor = ObjectPostProcessor.identity();
 
 	@Autowired(required = false)
 	private BeanFactory beanFactory;
@@ -98,8 +98,12 @@ class ServerHttpSecurityConfiguration {
 	}
 
 	@Autowired(required = false)
-	void setObservationRegistry(ObservationRegistry observationRegistry) {
-		this.observationRegistry = observationRegistry;
+	void setAuthenticationManagerPostProcessor(
+			Map<String, ObjectPostProcessor<ReactiveAuthenticationManager>> postProcessors) {
+		if (postProcessors.size() == 1) {
+			this.postProcessor = postProcessors.values().iterator().next();
+		}
+		this.postProcessor = postProcessors.get("reactiveAuthenticationManagerPostProcessor");
 	}
 
 	@Autowired(required = false)
@@ -169,10 +173,7 @@ class ServerHttpSecurityConfiguration {
 			}
 			manager.setUserDetailsPasswordService(this.userDetailsPasswordService);
 			manager.setCompromisedPasswordChecker(this.compromisedPasswordChecker);
-			if (!this.observationRegistry.isNoop()) {
-				return new ObservationReactiveAuthenticationManager(this.observationRegistry, manager);
-			}
-			return manager;
+			return this.postProcessor.postProcess(manager);
 		}
 		return null;
 	}

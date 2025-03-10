@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,12 @@
 
 package org.springframework.security.authorization.event;
 
+import java.io.Serial;
 import java.util.function.Supplier;
 
 import org.springframework.context.ApplicationEvent;
 import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationResult;
 import org.springframework.security.core.Authentication;
 import org.springframework.util.Assert;
 
@@ -30,23 +32,40 @@ import org.springframework.util.Assert;
  * @author Josh Cummings
  * @since 5.8
  */
+@SuppressWarnings("serial")
 public class AuthorizationEvent extends ApplicationEvent {
+
+	@Serial
+	private static final long serialVersionUID = -9053927371500241295L;
 
 	private final Supplier<Authentication> authentication;
 
-	private final AuthorizationDecision decision;
+	private final AuthorizationResult result;
 
 	/**
 	 * Construct an {@link AuthorizationEvent}
 	 * @param authentication the principal requiring access
 	 * @param object the object to which access was requested
-	 * @param decision whether authorization was granted or denied
+	 * @param result whether authorization was granted or denied
 	 */
-	public AuthorizationEvent(Supplier<Authentication> authentication, Object object, AuthorizationDecision decision) {
+	public AuthorizationEvent(Supplier<Authentication> authentication, Object object, AuthorizationDecision result) {
 		super(object);
 		Assert.notNull(authentication, "authentication supplier cannot be null");
 		this.authentication = authentication;
-		this.decision = decision;
+		this.result = result;
+	}
+
+	/**
+	 * Construct an {@link AuthorizationEvent}
+	 * @param authentication the principal requiring access
+	 * @param object the object to which access was requested
+	 * @param result whether authorization was granted or denied
+	 */
+	public AuthorizationEvent(Supplier<Authentication> authentication, Object object, AuthorizationResult result) {
+		super(object);
+		Assert.notNull(authentication, "authentication supplier cannot be null");
+		this.authentication = authentication;
+		this.result = result;
 	}
 
 	/**
@@ -68,9 +87,27 @@ public class AuthorizationEvent extends ApplicationEvent {
 	/**
 	 * Get the response to the principal's request
 	 * @return the response to the principal's request
+	 * @deprecated please use {@link #getAuthorizationResult()}
 	 */
+	@Deprecated
 	public AuthorizationDecision getAuthorizationDecision() {
-		return this.decision;
+		if (this.result == null) {
+			return null;
+		}
+		if (this.result instanceof AuthorizationDecision decision) {
+			return decision;
+		}
+		throw new IllegalArgumentException(
+				"Please either call getAuthorizationResult or ensure that the result is of type AuthorizationDecision");
+	}
+
+	/**
+	 * Get the response to the principal's request
+	 * @return the response to the principal's request
+	 * @since 6.4
+	 */
+	public AuthorizationResult getAuthorizationResult() {
+		return this.result;
 	}
 
 }

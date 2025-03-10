@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,15 +29,10 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
 
-import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.web.WebAttributes;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.authentication.rememberme.AbstractRememberMeServices;
-import org.springframework.security.web.util.CssUtils;
 import org.springframework.util.Assert;
-import org.springframework.util.StringUtils;
 import org.springframework.web.filter.GenericFilterBean;
 
 /**
@@ -68,6 +63,8 @@ public class DefaultLoginPageGeneratingFilter extends GenericFilterBean {
 
 	private boolean saml2LoginEnabled;
 
+	private boolean passkeysEnabled;
+
 	private boolean oneTimeTokenEnabled;
 
 	private String authenticationUrl;
@@ -85,6 +82,8 @@ public class DefaultLoginPageGeneratingFilter extends GenericFilterBean {
 	private Map<String, String> saml2AuthenticationUrlToProviderName;
 
 	private Function<HttpServletRequest, Map<String, String>> resolveHiddenInputs = (request) -> Collections.emptyMap();
+
+	private Function<HttpServletRequest, Map<String, String>> resolveHeaders = (request) -> Collections.emptyMap();
 
 	public DefaultLoginPageGeneratingFilter() {
 	}
@@ -118,8 +117,19 @@ public class DefaultLoginPageGeneratingFilter extends GenericFilterBean {
 		this.resolveHiddenInputs = resolveHiddenInputs;
 	}
 
+	/**
+	 * Sets a Function used to resolve a Map of the HTTP headers where the key is the name
+	 * of the header and the value is the value of the header. Typically, this is used to
+	 * resolve the CSRF token.
+	 * @param resolveHeaders the function to resolve the headers
+	 */
+	public void setResolveHeaders(Function<HttpServletRequest, Map<String, String>> resolveHeaders) {
+		Assert.notNull(resolveHeaders, "resolveHeaders cannot be null");
+		this.resolveHeaders = resolveHeaders;
+	}
+
 	public boolean isEnabled() {
-		return this.formLoginEnabled || this.oauth2LoginEnabled || this.saml2LoginEnabled;
+		return this.formLoginEnabled || this.oauth2LoginEnabled || this.saml2LoginEnabled || this.oneTimeTokenEnabled;
 	}
 
 	public void setLogoutSuccessUrl(String logoutSuccessUrl) {
@@ -154,11 +164,15 @@ public class DefaultLoginPageGeneratingFilter extends GenericFilterBean {
 		this.saml2LoginEnabled = saml2LoginEnabled;
 	}
 
+	public void setPasskeysEnabled(boolean passkeysEnabled) {
+		this.passkeysEnabled = passkeysEnabled;
+	}
+
 	public void setAuthenticationUrl(String authenticationUrl) {
 		this.authenticationUrl = authenticationUrl;
 	}
 
-	public void setGenerateOneTimeTokenUrl(String generateOneTimeTokenUrl) {
+	public void setOneTimeTokenGenerationUrl(String generateOneTimeTokenUrl) {
 		this.generateOneTimeTokenUrl = generateOneTimeTokenUrl;
 	}
 
@@ -203,17 +217,49 @@ public class DefaultLoginPageGeneratingFilter extends GenericFilterBean {
 	}
 
 	private String generateLoginPageHtml(HttpServletRequest request, boolean loginError, boolean logoutSuccess) {
-		String errorMsg = loginError ? getLoginErrorMessage(request) : "Invalid credentials";
+		String errorMsg = "Invalid credentials";
 		String contextPath = request.getContextPath();
 
 		return HtmlTemplates.fromTemplate(LOGIN_PAGE_TEMPLATE)
-			.withRawHtml("cssStyle", CssUtils.getCssStyleBlock().indent(4))
+			.withRawHtml("contextPath", contextPath)
+			.withRawHtml("javaScript", renderJavaScript(request, contextPath))
 			.withRawHtml("formLogin", renderFormLogin(request, loginError, logoutSuccess, contextPath, errorMsg))
 			.withRawHtml("oneTimeTokenLogin",
 					renderOneTimeTokenLogin(request, loginError, logoutSuccess, contextPath, errorMsg))
 			.withRawHtml("oauth2Login", renderOAuth2Login(loginError, logoutSuccess, errorMsg, contextPath))
 			.withRawHtml("saml2Login", renderSaml2Login(loginError, logoutSuccess, errorMsg, contextPath))
+			.withRawHtml("passkeyLogin", renderPasskeyLogin())
 			.render();
+	}
+
+	private String renderJavaScript(HttpServletRequest request, String contextPath) {
+		if (this.passkeysEnabled) {
+			return HtmlTemplates.fromTemplate(PASSKEY_SCRIPT_TEMPLATE)
+				.withValue("loginPageUrl", this.loginPageUrl)
+				.withValue("contextPath", contextPath)
+				.withRawHtml("csrfHeaders", renderHeaders(request))
+				.render();
+		}
+		return "";
+	}
+
+	private String renderPasskeyLogin() {
+		if (this.passkeysEnabled) {
+			return PASSKEY_FORM_TEMPLATE;
+		}
+		return "";
+	}
+
+	private String renderHeaders(HttpServletRequest request) {
+		StringBuffer javascriptHeadersEntries = new StringBuffer();
+		Map<String, String> headers = this.resolveHeaders.apply(request);
+		for (Map.Entry<String, String> header : headers.entrySet()) {
+			javascriptHeadersEntries.append(HtmlTemplates.fromTemplate(CSRF_HEADERS)
+				.withValue("headerName", header.getKey())
+				.withValue("headerValue", header.getValue())
+				.render());
+		}
+		return javascriptHeadersEntries.toString();
 	}
 
 	private String renderFormLogin(HttpServletRequest request, boolean loginError, boolean logoutSuccess,
@@ -236,6 +282,7 @@ public class DefaultLoginPageGeneratingFilter extends GenericFilterBean {
 			.withValue("passwordParameter", this.passwordParameter)
 			.withRawHtml("rememberMeInput", renderRememberMe(this.rememberMeParameter))
 			.withRawHtml("hiddenInputs", hiddenInputs)
+			.withRawHtml("autocomplete", this.passkeysEnabled ? "autocomplete=\"password webauthn\" " : "")
 			.render();
 	}
 
@@ -307,21 +354,6 @@ public class DefaultLoginPageGeneratingFilter extends GenericFilterBean {
 			.render();
 	}
 
-	private String getLoginErrorMessage(HttpServletRequest request) {
-		HttpSession session = request.getSession(false);
-		if (session == null) {
-			return "Invalid credentials";
-		}
-		if (!(session
-			.getAttribute(WebAttributes.AUTHENTICATION_EXCEPTION) instanceof AuthenticationException exception)) {
-			return "Invalid credentials";
-		}
-		if (!StringUtils.hasText(exception.getMessage())) {
-			return "Invalid credentials";
-		}
-		return exception.getMessage();
-	}
-
 	private String renderHiddenInput(String name, String value) {
 		return HtmlTemplates.fromTemplate(HIDDEN_HTML_INPUT_TEMPLATE)
 			.withValue("name", name)
@@ -384,6 +416,26 @@ public class DefaultLoginPageGeneratingFilter extends GenericFilterBean {
 		return uri.equals(request.getContextPath() + url);
 	}
 
+	private static final String CSRF_HEADERS = """
+			{"{{headerName}}" : "{{headerValue}}"}""";
+
+	private static final String PASSKEY_SCRIPT_TEMPLATE = """
+				<script type="text/javascript" src="{{contextPath}}/login/webauthn.js"></script>
+				<script type="text/javascript">
+				<!--
+					document.addEventListener("DOMContentLoaded",() => setupLogin({{csrfHeaders}}, "{{contextPath}}", document.getElementById('passkey-signin')));
+
+				//-->
+				</script>
+			""";
+
+	private static final String PASSKEY_FORM_TEMPLATE = """
+			<div class="login-form">
+			<h2>Login with Passkeys</h2>
+			<button id="passkey-signin" type="submit" class="primary">Sign in with a passkey</button>
+			</form>
+			""";
+
 	private static final String LOGIN_PAGE_TEMPLATE = """
 			<!DOCTYPE html>
 			<html lang="en">
@@ -393,12 +445,12 @@ public class DefaultLoginPageGeneratingFilter extends GenericFilterBean {
 			    <meta name="description" content="">
 			    <meta name="author" content="">
 			    <title>Please sign in</title>
-			{{cssStyle}}
+			    <link href="{{contextPath}}/default-ui.css" rel="stylesheet" />{{javaScript}}
 			  </head>
 			  <body>
 			    <div class="content">
 			{{formLogin}}
-			{{oneTimeTokenLogin}}
+			{{oneTimeTokenLogin}}{{passkeyLogin}}
 			{{oauth2Login}}
 			{{saml2Login}}
 			    </div>
@@ -408,14 +460,14 @@ public class DefaultLoginPageGeneratingFilter extends GenericFilterBean {
 	private static final String LOGIN_FORM_TEMPLATE = """
 			      <form class="login-form" method="post" action="{{loginUrl}}">
 			        <h2>Please sign in</h2>
-			        {{errorMessage}}{{logoutMessage}}
+			{{errorMessage}}{{logoutMessage}}
 			        <p>
 			          <label for="username" class="screenreader">Username</label>
 			          <input type="text" id="username" name="{{usernameParameter}}" placeholder="Username" required autofocus>
 			        </p>
 			        <p>
 			          <label for="password" class="screenreader">Password</label>
-			          <input type="password" id="password" name="{{passwordParameter}}" placeholder="Password" required>
+			          <input type="password" id="password" name="{{passwordParameter}}" placeholder="Password" {{autocomplete}}required>
 			        </p>
 			{{rememberMeInput}}
 			{{hiddenInputs}}
@@ -451,12 +503,12 @@ public class DefaultLoginPageGeneratingFilter extends GenericFilterBean {
 	private static final String ONE_TIME_TEMPLATE = """
 			      <form id="ott-form" class="login-form" method="post" action="{{generateOneTimeTokenUrl}}">
 			        <h2>Request a One-Time Token</h2>
-			      {{errorMessage}}{{logoutMessage}}
+			{{errorMessage}}{{logoutMessage}}
 			        <p>
 			          <label for="ott-username" class="screenreader">Username</label>
 			          <input type="text" id="ott-username" name="username" placeholder="Username" required>
 			        </p>
-			      {{hiddenInputs}}
+			{{hiddenInputs}}
 			        <button class="primary" type="submit" form="ott-form">Send Token</button>
 			      </form>
 			""";

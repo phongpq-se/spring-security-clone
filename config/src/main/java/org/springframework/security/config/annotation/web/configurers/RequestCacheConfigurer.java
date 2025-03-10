@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2013 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.context.ApplicationContext;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.HttpSecurityBuilder;
+import org.springframework.security.config.annotation.web.RequestMatcherFactory;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.savedrequest.NullRequestCache;
@@ -67,6 +68,7 @@ import org.springframework.web.accept.HeaderContentNegotiationStrategy;
  * </ul>
  *
  * @author Rob Winch
+ * @author Ngoc Nhan
  * @since 3.2
  * @see RequestCache
  */
@@ -134,23 +136,19 @@ public final class RequestCacheConfigurer<H extends HttpSecurityBuilder<H>>
 		if (context == null) {
 			return null;
 		}
-		try {
-			return context.getBean(type);
-		}
-		catch (NoSuchBeanDefinitionException ex) {
-			return null;
-		}
+
+		return context.getBeanProvider(type).getIfUnique();
 	}
 
 	@SuppressWarnings("unchecked")
 	private RequestMatcher createDefaultSavedRequestMatcher(H http) {
-		RequestMatcher notFavIcon = new NegatedRequestMatcher(new AntPathRequestMatcher("/**/favicon.*"));
+		RequestMatcher notFavIcon = new NegatedRequestMatcher(getFaviconRequestMatcher());
 		RequestMatcher notXRequestedWith = new NegatedRequestMatcher(
 				new RequestHeaderRequestMatcher("X-Requested-With", "XMLHttpRequest"));
 		boolean isCsrfEnabled = http.getConfigurer(CsrfConfigurer.class) != null;
 		List<RequestMatcher> matchers = new ArrayList<>();
 		if (isCsrfEnabled) {
-			RequestMatcher getRequests = new AntPathRequestMatcher("/**", "GET");
+			RequestMatcher getRequests = RequestMatcherFactory.matcher(HttpMethod.GET, "/**");
 			matchers.add(0, getRequests);
 		}
 		matchers.add(notFavIcon);
@@ -169,6 +167,15 @@ public final class RequestCacheConfigurer<H extends HttpSecurityBuilder<H>>
 		MediaTypeRequestMatcher mediaRequest = new MediaTypeRequestMatcher(contentNegotiationStrategy, mediaType);
 		mediaRequest.setIgnoredMediaTypes(Collections.singleton(MediaType.ALL));
 		return new NegatedRequestMatcher(mediaRequest);
+	}
+
+	private RequestMatcher getFaviconRequestMatcher() {
+		if (RequestMatcherFactory.usesPathPatterns()) {
+			return RequestMatcherFactory.matcher("/favicon.*");
+		}
+		else {
+			return new AntPathRequestMatcher("/**/favicon.*");
+		}
 	}
 
 }

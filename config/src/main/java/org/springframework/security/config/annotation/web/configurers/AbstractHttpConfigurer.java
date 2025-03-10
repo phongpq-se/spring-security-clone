@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2022 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 package org.springframework.security.config.annotation.web.configurers;
 
 import org.springframework.context.ApplicationContext;
-import org.springframework.security.config.annotation.ObjectPostProcessor;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.SecurityConfigurer;
 import org.springframework.security.config.annotation.SecurityConfigurerAdapter;
 import org.springframework.security.config.annotation.web.HttpSecurityBuilder;
@@ -31,6 +31,7 @@ import org.springframework.security.web.DefaultSecurityFilterChain;
  * {@link HttpSecurity}.
  *
  * @author Rob Winch
+ * @author Ding Hao
  */
 public abstract class AbstractHttpConfigurer<T extends AbstractHttpConfigurer<T, B>, B extends HttpSecurityBuilder<B>>
 		extends SecurityConfigurerAdapter<DefaultSecurityFilterChain, B> {
@@ -54,18 +55,24 @@ public abstract class AbstractHttpConfigurer<T extends AbstractHttpConfigurer<T,
 		return (T) this;
 	}
 
+	/**
+	 * @deprecated
+	 */
+	@Deprecated(since = "6.4", forRemoval = true)
+	@SuppressWarnings("unchecked")
+	public T withObjectPostProcessor(
+			org.springframework.security.config.annotation.ObjectPostProcessor<?> objectPostProcessor) {
+		addObjectPostProcessor(objectPostProcessor);
+		return (T) this;
+	}
+
 	protected SecurityContextHolderStrategy getSecurityContextHolderStrategy() {
 		if (this.securityContextHolderStrategy != null) {
 			return this.securityContextHolderStrategy;
 		}
 		ApplicationContext context = getBuilder().getSharedObject(ApplicationContext.class);
-		String[] names = context.getBeanNamesForType(SecurityContextHolderStrategy.class);
-		if (names.length == 1) {
-			this.securityContextHolderStrategy = context.getBean(SecurityContextHolderStrategy.class);
-		}
-		else {
-			this.securityContextHolderStrategy = SecurityContextHolder.getContextHolderStrategy();
-		}
+		this.securityContextHolderStrategy = context.getBeanProvider(SecurityContextHolderStrategy.class)
+			.getIfUnique(SecurityContextHolder::getContextHolderStrategy);
 		return this.securityContextHolderStrategy;
 	}
 

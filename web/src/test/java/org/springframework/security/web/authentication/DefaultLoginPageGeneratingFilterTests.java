@@ -18,17 +18,14 @@ package org.springframework.security.web.authentication;
 
 import java.io.IOException;
 import java.util.Collections;
-import java.util.Locale;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import org.junit.jupiter.api.Test;
 
-import org.springframework.context.support.MessageSourceAccessor;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.core.SpringSecurityMessageSource;
 import org.springframework.security.web.WebAttributes;
 import org.springframework.security.web.authentication.ui.DefaultLoginPageGeneratingFilter;
 
@@ -128,22 +125,6 @@ public class DefaultLoginPageGeneratingFilterTests {
 		assertThat(response.getContentAsString()).isEmpty();
 	}
 
-	/* SEC-1111 */
-	@Test
-	public void handlesNonIso8859CharsInErrorMessage() throws Exception {
-		DefaultLoginPageGeneratingFilter filter = new DefaultLoginPageGeneratingFilter(
-				new UsernamePasswordAuthenticationFilter());
-		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/login");
-		MockHttpServletResponse response = new MockHttpServletResponse();
-		request.setQueryString("error");
-		MessageSourceAccessor messages = SpringSecurityMessageSource.getAccessor();
-		String message = messages.getMessage("AbstractUserDetailsAuthenticationProvider.badCredentials",
-				"Bad credentials", Locale.KOREA);
-		request.getSession().setAttribute(WebAttributes.AUTHENTICATION_EXCEPTION, new BadCredentialsException(message));
-		filter.doFilter(request, response, this.chain);
-		assertThat(response.getContentAsString()).contains(message);
-	}
-
 	// gh-5394
 	@Test
 	public void generatesForOAuth2LoginAndEscapesClientName() throws Exception {
@@ -192,19 +173,19 @@ public class DefaultLoginPageGeneratingFilterTests {
 		DefaultLoginPageGeneratingFilter filter = new DefaultLoginPageGeneratingFilter();
 		filter.setLoginPageUrl(DefaultLoginPageGeneratingFilter.DEFAULT_LOGIN_PAGE_URL);
 		filter.setOneTimeTokenEnabled(true);
-		filter.setGenerateOneTimeTokenUrl("/ott/authenticate");
+		filter.setOneTimeTokenGenerationUrl("/ott/authenticate");
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		filter.doFilter(new MockHttpServletRequest("GET", "/login"), response, this.chain);
 		assertThat(response.getContentAsString()).contains("Request a One-Time Token");
 		assertThat(response.getContentAsString()).contains("""
 				      <form id="ott-form" class="login-form" method="post" action="/ott/authenticate">
 				        <h2>Request a One-Time Token</h2>
-				     \s
+
 				        <p>
 				          <label for="ott-username" class="screenreader">Username</label>
 				          <input type="text" id="ott-username" name="username" placeholder="Username" required>
 				        </p>
-				     \s
+
 				        <button class="primary" type="submit" form="ott-form">Send Token</button>
 				      </form>
 				""");
@@ -238,137 +219,13 @@ public class DefaultLoginPageGeneratingFilterTests {
 				    <meta name="description" content="">
 				    <meta name="author" content="">
 				    <title>Please sign in</title>
-				    <style>
-				    /* General layout */
-				    body {
-				      font-family: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-				      background-color: #eee;
-				      padding: 40px 0;
-				      margin: 0;
-				      line-height: 1.5;
-				    }
-				\s\s\s\s
-				    h2 {
-				      margin-top: 0;
-				      margin-bottom: 0.5rem;
-				      font-size: 2rem;
-				      font-weight: 500;
-				      line-height: 2rem;
-				    }
-				\s\s\s\s
-				    .content {
-				      margin-right: auto;
-				      margin-left: auto;
-				      padding-right: 15px;
-				      padding-left: 15px;
-				      width: 100%;
-				      box-sizing: border-box;
-				    }
-				\s\s\s\s
-				    @media (min-width: 800px) {
-				      .content {
-				        max-width: 760px;
-				      }
-				    }
-				\s\s\s\s
-				    /* Components */
-				    a,
-				    a:visited {
-				      text-decoration: none;
-				      color: #06f;
-				    }
-				\s\s\s\s
-				    a:hover {
-				      text-decoration: underline;
-				      color: #003c97;
-				    }
-				\s\s\s\s
-				    input[type="text"],
-				    input[type="password"] {
-				      height: auto;
-				      width: 100%;
-				      font-size: 1rem;
-				      padding: 0.5rem;
-				      box-sizing: border-box;
-				    }
-				\s\s\s\s
-				    button {
-				      padding: 0.5rem 1rem;
-				      font-size: 1.25rem;
-				      line-height: 1.5;
-				      border: none;
-				      border-radius: 0.1rem;
-				      width: 100%;
-				    }
-				\s\s\s\s
-				    button.primary {
-				      color: #fff;
-				      background-color: #06f;
-				    }
-				\s\s\s\s
-				    .alert {
-				      padding: 0.75rem 1rem;
-				      margin-bottom: 1rem;
-				      line-height: 1.5;
-				      border-radius: 0.1rem;
-				      width: 100%;
-				      box-sizing: border-box;
-				      border-width: 1px;
-				      border-style: solid;
-				    }
-				\s\s\s\s
-				    .alert.alert-danger {
-				      color: #6b1922;
-				      background-color: #f7d5d7;
-				      border-color: #eab6bb;
-				    }
-				\s\s\s\s
-				    .alert.alert-success {
-				      color: #145222;
-				      background-color: #d1f0d9;
-				      border-color: #c2ebcb;
-				    }
-				\s\s\s\s
-				    .screenreader {
-				      position: absolute;
-				      clip: rect(0 0 0 0);
-				      height: 1px;
-				      width: 1px;
-				      padding: 0;
-				      border: 0;
-				      overflow: hidden;
-				    }
-				\s\s\s\s
-				    table {
-				      width: 100%;
-				      max-width: 100%;
-				      margin-bottom: 2rem;
-				    }
-				\s\s\s\s
-				    .table-striped tr:nth-of-type(2n + 1) {
-				      background-color: #e1e1e1;
-				    }
-				\s\s\s\s
-				    td {
-				      padding: 0.75rem;
-				      vertical-align: top;
-				    }
-				\s\s\s\s
-				    /* Login / logout layouts */
-				    .login-form,
-				    .logout-form {
-				      max-width: 340px;
-				      padding: 0 15px 15px 15px;
-				      margin: 0 auto 2rem auto;
-				      box-sizing: border-box;
-				    }
-				    </style>
+				    <link href="/default-ui.css" rel="stylesheet" />
 				  </head>
 				  <body>
 				    <div class="content">
 				      <form class="login-form" method="post" action="null">
 				        <h2>Please sign in</h2>
-				        <div class="alert alert-danger" role="alert">Bad credentials</div>
+				<div class="alert alert-danger" role="alert">Invalid credentials</div>
 				        <p>
 				          <label for="username" class="screenreader">Username</label>
 				          <input type="text" id="username" name="username" placeholder="Username" required autofocus>
@@ -383,12 +240,12 @@ public class DefaultLoginPageGeneratingFilterTests {
 				      </form>
 
 				<h2>Login with OAuth 2.0</h2>
-				<div class="alert alert-danger" role="alert">Bad credentials</div>
+				<div class="alert alert-danger" role="alert">Invalid credentials</div>
 				<table class="table table-striped">
 				  <tr><td><a href="/oauth2/authorization/google">Google &lt; &gt; &quot; &#39; &amp;</a></td></tr>
 				</table>
 				<h2>Login with SAML 2.0</h2>
-				<div class="alert alert-danger" role="alert">Bad credentials</div>
+				<div class="alert alert-danger" role="alert">Invalid credentials</div>
 				<table class="table table-striped">
 				  <tr><td><a href="/saml/sso/google">Google &lt; &gt; &quot; &#39; &amp;</a></td></tr>
 				</table>

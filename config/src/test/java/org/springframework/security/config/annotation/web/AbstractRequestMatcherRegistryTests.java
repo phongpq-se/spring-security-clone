@@ -25,16 +25,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.ResolvableType;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.security.config.MockServletContext;
-import org.springframework.security.config.TestMockHttpServletMappings;
-import org.springframework.security.config.annotation.ObjectPostProcessor;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.AbstractRequestMatcherRegistry.DispatcherServletDelegatingRequestMatcher;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.test.SpringTestContext;
+import org.springframework.security.web.servlet.MockServletContext;
+import org.springframework.security.web.servlet.TestMockHttpServletMappings;
 import org.springframework.security.web.servlet.util.matcher.MvcRequestMatcher;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.DispatcherTypeRequestMatcher;
@@ -79,7 +81,11 @@ public class AbstractRequestMatcherRegistryTests {
 	public void setUp() {
 		this.matcherRegistry = new TestRequestMatcherRegistry();
 		this.context = mock(WebApplicationContext.class);
-		given(this.context.getBean(ObjectPostProcessor.class)).willReturn(NO_OP_OBJECT_POST_PROCESSOR);
+		ObjectProvider<ObjectPostProcessor<Object>> postProcessors = mock(ObjectProvider.class);
+		ResolvableType type = ResolvableType.forClassWithGenerics(ObjectPostProcessor.class, Object.class);
+		ObjectProvider<ObjectPostProcessor<Object>> given = this.context.getBeanProvider(type);
+		given(given).willReturn(postProcessors);
+		given(postProcessors.getObject()).willReturn(NO_OP_OBJECT_POST_PROCESSOR);
 		given(this.context.getServletContext()).willReturn(MockServletContext.mvc());
 		this.matcherRegistry.setApplicationContext(this.context);
 		mockMvcIntrospector(true);
@@ -312,7 +318,7 @@ public class AbstractRequestMatcherRegistryTests {
 		List<RequestMatcher> requestMatchers = this.matcherRegistry.requestMatchers("/services/*");
 		assertThat(requestMatchers).hasSize(1);
 		assertThat(requestMatchers.get(0)).isInstanceOf(DispatcherServletDelegatingRequestMatcher.class);
-		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/services/endpoint");
+		MockHttpServletRequest request = new MockHttpServletRequest(servletContext, "GET", "/services/endpoint");
 		request.setHttpServletMapping(TestMockHttpServletMappings.defaultMapping());
 		assertThat(requestMatchers.get(0).matcher(request).isMatch()).isTrue();
 		request.setHttpServletMapping(TestMockHttpServletMappings.path(request, "/services"));
@@ -328,9 +334,8 @@ public class AbstractRequestMatcherRegistryTests {
 		servletContext.addServlet("path", Servlet.class).addMapping("/services/*");
 		MvcRequestMatcher mvc = mock(MvcRequestMatcher.class);
 		AntPathRequestMatcher ant = mock(AntPathRequestMatcher.class);
-		DispatcherServletDelegatingRequestMatcher requestMatcher = new DispatcherServletDelegatingRequestMatcher(ant,
-				mvc, servletContext);
-		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/services/endpoint");
+		RequestMatcher requestMatcher = new DispatcherServletDelegatingRequestMatcher(ant, mvc);
+		MockHttpServletRequest request = new MockHttpServletRequest(servletContext, "GET", "/services/endpoint");
 		request.setHttpServletMapping(TestMockHttpServletMappings.defaultMapping());
 		assertThat(requestMatcher.matches(request)).isFalse();
 		verify(mvc).matches(request);
@@ -348,9 +353,8 @@ public class AbstractRequestMatcherRegistryTests {
 		servletContext.addServlet("path", Servlet.class).addMapping("/services/*");
 		MvcRequestMatcher mvc = mock(MvcRequestMatcher.class);
 		AntPathRequestMatcher ant = mock(AntPathRequestMatcher.class);
-		DispatcherServletDelegatingRequestMatcher requestMatcher = new DispatcherServletDelegatingRequestMatcher(ant,
-				mvc, servletContext);
-		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/services/endpoint");
+		RequestMatcher requestMatcher = new DispatcherServletDelegatingRequestMatcher(ant, mvc);
+		MockHttpServletRequest request = new MockHttpServletRequest(servletContext, "GET", "/services/endpoint");
 		assertThatExceptionOfType(IllegalArgumentException.class).isThrownBy(() -> requestMatcher.matcher(request));
 	}
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.security.access.ConfigAttribute;
 import org.springframework.security.access.SecurityConfig;
 import org.springframework.security.config.Customizer;
-import org.springframework.security.config.annotation.ObjectPostProcessor;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.SecurityBuilder;
 import org.springframework.security.config.annotation.SecurityConfigurer;
 import org.springframework.security.config.annotation.web.HttpSecurityBuilder;
@@ -78,7 +78,9 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
  * @author Rob Winch
  * @author Onur Kagan Ozcan
  * @since 3.2
+ * @deprecated please use {@link HttpsRedirectConfigurer} instead
  */
+@Deprecated
 public final class ChannelSecurityConfigurer<H extends HttpSecurityBuilder<H>>
 		extends AbstractHttpConfigurer<ChannelSecurityConfigurer<H>, H> {
 
@@ -147,6 +149,10 @@ public final class ChannelSecurityConfigurer<H extends HttpSecurityBuilder<H>>
 		return this.REGISTRY;
 	}
 
+	/**
+	 * @deprecated no replacement planned
+	 */
+	@Deprecated
 	public final class ChannelRequestMatcherRegistry
 			extends AbstractConfigAttributeRequestMatcherRegistry<RequiresChannelUrl> {
 
@@ -165,6 +171,16 @@ public final class ChannelSecurityConfigurer<H extends HttpSecurityBuilder<H>>
 		 * @return the {@link ChannelSecurityConfigurer} for further customizations
 		 */
 		public ChannelRequestMatcherRegistry withObjectPostProcessor(ObjectPostProcessor<?> objectPostProcessor) {
+			addObjectPostProcessor(objectPostProcessor);
+			return this;
+		}
+
+		/**
+		 * @deprecated
+		 */
+		@Deprecated(since = "6.4", forRemoval = true)
+		public ChannelRequestMatcherRegistry withObjectPostProcessor(
+				org.springframework.security.config.annotation.ObjectPostProcessor<?> objectPostProcessor) {
 			addObjectPostProcessor(objectPostProcessor);
 			return this;
 		}
@@ -205,6 +221,10 @@ public final class ChannelSecurityConfigurer<H extends HttpSecurityBuilder<H>>
 
 	}
 
+	/**
+	 * @deprecated no replacement planned
+	 */
+	@Deprecated
 	public class RequiresChannelUrl {
 
 		protected List<? extends RequestMatcher> requestMatchers;

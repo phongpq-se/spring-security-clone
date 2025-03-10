@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,8 +44,8 @@ public final class InMemoryOneTimeTokenService implements OneTimeTokenService {
 	@NonNull
 	public OneTimeToken generate(GenerateOneTimeTokenRequest request) {
 		String token = UUID.randomUUID().toString();
-		Instant fiveMinutesFromNow = this.clock.instant().plusSeconds(300);
-		OneTimeToken ott = new DefaultOneTimeToken(token, request.getUsername(), fiveMinutesFromNow);
+		Instant expiresAt = this.clock.instant().plus(request.getExpiresIn());
+		OneTimeToken ott = new DefaultOneTimeToken(token, request.getUsername(), expiresAt);
 		this.oneTimeTokenByToken.put(token, ott);
 		cleanExpiredTokensIfNeeded();
 		return ott;
@@ -75,7 +75,12 @@ public final class InMemoryOneTimeTokenService implements OneTimeTokenService {
 		return this.clock.instant().isAfter(ott.getExpiresAt());
 	}
 
-	void setClock(Clock clock) {
+	/**
+	 * Sets the {@link Clock} used when generating one-time token and checking token
+	 * expiry.
+	 * @param clock the clock
+	 */
+	public void setClock(Clock clock) {
 		Assert.notNull(clock, "clock cannot be null");
 		this.clock = clock;
 	}

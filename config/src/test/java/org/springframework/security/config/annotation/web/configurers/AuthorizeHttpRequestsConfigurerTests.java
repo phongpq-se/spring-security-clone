@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2023 the original author or authors.
+ * Copyright 2002-2024 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,12 +18,20 @@ package org.springframework.security.config.annotation.web.configurers;
 
 import java.util.function.Supplier;
 
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.observation.ObservationTextPublisher;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 
+import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanCreationException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
@@ -33,16 +41,21 @@ import org.springframework.security.authentication.TestAuthentication;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationEventPublisher;
 import org.springframework.security.authorization.AuthorizationManager;
-import org.springframework.security.config.annotation.ObjectPostProcessor;
+import org.springframework.security.authorization.AuthorizationObservationContext;
+import org.springframework.security.authorization.AuthorizationResult;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.AbstractRequestMatcherRegistry;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.core.GrantedAuthorityDefaults;
+import org.springframework.security.config.observation.SecurityObservationSettings;
 import org.springframework.security.config.test.SpringTestContext;
 import org.springframework.security.config.test.SpringTestContextExtension;
+import org.springframework.security.config.web.PathPatternRequestMatcherBuilderFactoryBean;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
@@ -52,6 +65,7 @@ import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.access.intercept.RequestMatcherDelegatingAuthorizationManager;
 import org.springframework.security.web.servlet.util.matcher.MvcRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -60,14 +74,19 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.DispatcherServlet;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.config.Customizer.withDefaults;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -153,8 +172,10 @@ public class AuthorizeHttpRequestsConfigurerTests {
 	@Test
 	public void configureWhenObjectPostProcessorRegisteredThenInvokedOnAuthorizationManagerAndAuthorizationFilter() {
 		this.spring.register(ObjectPostProcessorConfig.class).autowire();
-		ObjectPostProcessor objectPostProcessor = this.spring.getContext().getBean(ObjectPostProcessor.class);
+		ObjectPostProcessor<Object> objectPostProcessor = this.spring.getContext()
+			.getBean(ObjectPostProcessorConfig.class).objectPostProcessor;
 		verify(objectPostProcessor).postProcess(any(RequestMatcherDelegatingAuthorizationManager.class));
+		verify(objectPostProcessor).postProcess(any(AuthorizationManager.class));
 		verify(objectPostProcessor).postProcess(any(AuthorizationFilter.class));
 	}
 
@@ -623,6 +644,52 @@ public class AuthorizeHttpRequestsConfigurerTests {
 		this.mvc.perform(requestWithUser).andExpect(status().isOk());
 	}
 
+	@Test
+	public void getWhenObservationRegistryThenObserves() throws Exception {
+		this.spring.register(RoleUserConfig.class, BasicController.class, ObservationRegistryConfig.class).autowire();
+		ObservationHandler<Observation.Context> handler = this.spring.getContext().getBean(ObservationHandler.class);
+		this.mvc.perform(get("/").with(user("user").roles("USER"))).andExpect(status().isOk());
+		ArgumentCaptor<Observation.Context> context = ArgumentCaptor.forClass(Observation.Context.class);
+		verify(handler, atLeastOnce()).onStart(context.capture());
+		assertThat(context.getAllValues()).anyMatch((c) -> c instanceof AuthorizationObservationContext);
+		verify(handler, atLeastOnce()).onStop(context.capture());
+		assertThat(context.getAllValues()).anyMatch((c) -> c instanceof AuthorizationObservationContext);
+		this.mvc.perform(get("/").with(user("user").roles("WRONG"))).andExpect(status().isForbidden());
+		verify(handler).onError(any());
+	}
+
+	@Test
+	public void getWhenExcludeAuthorizationObservationsThenUnobserved() throws Exception {
+		this.spring
+			.register(RoleUserConfig.class, BasicController.class, ObservationRegistryConfig.class,
+					SelectableObservationsConfig.class)
+			.autowire();
+		ObservationHandler<Observation.Context> handler = this.spring.getContext().getBean(ObservationHandler.class);
+		this.mvc.perform(get("/").with(user("user").roles("USER"))).andExpect(status().isOk());
+		this.mvc.perform(get("/").with(user("user").roles("WRONG"))).andExpect(status().isForbidden());
+		verifyNoInteractions(handler);
+	}
+
+	@Test
+	public void requestMatchersWhenMultipleDispatcherServletsAndPathBeanThenAllows() throws Exception {
+		this.spring.register(MvcRequestMatcherBuilderConfig.class, BasicController.class)
+			.postProcessor((context) -> context.getServletContext()
+				.addServlet("otherDispatcherServlet", DispatcherServlet.class)
+				.addMapping("/mvc"))
+			.autowire();
+		this.mvc.perform(get("/mvc/path").servletPath("/mvc").with(user("user"))).andExpect(status().isOk());
+		this.mvc.perform(get("/mvc/path").servletPath("/mvc").with(user("user").roles("DENIED")))
+			.andExpect(status().isForbidden());
+		this.mvc.perform(get("/path").with(user("user"))).andExpect(status().isForbidden());
+	}
+
+	@Test
+	public void requestMatchersWhenFactoryBeanThenAuthorizes() throws Exception {
+		this.spring.register(PathPatternFactoryBeanConfig.class).autowire();
+		this.mvc.perform(get("/path/resource")).andExpect(status().isUnauthorized());
+		this.mvc.perform(get("/path/resource").with(user("user").roles("USER"))).andExpect(status().isNotFound());
+	}
+
 	@Configuration
 	@EnableWebSecurity
 	static class GrantedAuthorityDefaultHasRoleConfig {
@@ -1015,6 +1082,12 @@ public class AuthorizeHttpRequestsConfigurerTests {
 			// @formatter:on
 		}
 
+		@Bean
+		UserDetailsService users() {
+			return new InMemoryUserDetailsManager(
+					User.withUsername("user").password("{noop}password").roles("USER").build());
+		}
+
 	}
 
 	@Configuration
@@ -1194,6 +1267,8 @@ public class AuthorizeHttpRequestsConfigurerTests {
 
 		@Bean
 		AuthorizationEventPublisher authorizationEventPublisher() {
+			doCallRealMethod().when(this.publisher)
+				.publishAuthorizationEvent(any(), any(), any(AuthorizationResult.class));
 			return this.publisher;
 		}
 
@@ -1208,6 +1283,109 @@ public class AuthorizeHttpRequestsConfigurerTests {
 
 		@PostMapping("/")
 		void rootPost() {
+		}
+
+		@GetMapping("/path")
+		void path() {
+		}
+
+	}
+
+	@Configuration
+	static class ObservationRegistryConfig {
+
+		private final ObservationRegistry registry = ObservationRegistry.create();
+
+		private final ObservationHandler<Observation.Context> handler = spy(new ObservationTextPublisher());
+
+		@Bean
+		ObservationRegistry observationRegistry() {
+			return this.registry;
+		}
+
+		@Bean
+		ObservationHandler<Observation.Context> observationHandler() {
+			return this.handler;
+		}
+
+		@Bean
+		ObservationRegistryPostProcessor observationRegistryPostProcessor(
+				ObjectProvider<ObservationHandler<Observation.Context>> handler) {
+			return new ObservationRegistryPostProcessor(handler);
+		}
+
+	}
+
+	static class ObservationRegistryPostProcessor implements BeanPostProcessor {
+
+		private final ObjectProvider<ObservationHandler<Observation.Context>> handler;
+
+		ObservationRegistryPostProcessor(ObjectProvider<ObservationHandler<Observation.Context>> handler) {
+			this.handler = handler;
+		}
+
+		@Override
+		public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
+			if (bean instanceof ObservationRegistry registry) {
+				registry.observationConfig().observationHandler(this.handler.getObject());
+			}
+			return bean;
+		}
+
+	}
+
+	@Configuration
+	static class SelectableObservationsConfig {
+
+		@Bean
+		SecurityObservationSettings observabilityDefaults() {
+			return SecurityObservationSettings.withDefaults().shouldObserveAuthorizations(false).build();
+		}
+
+	}
+
+	@Configuration
+	@EnableWebSecurity
+	@EnableWebMvc
+	static class MvcRequestMatcherBuilderConfig {
+
+		@Bean
+		SecurityFilterChain security(HttpSecurity http) throws Exception {
+			PathPatternRequestMatcher.Builder mvc = PathPatternRequestMatcher.withDefaults().servletPath("/mvc");
+			// @formatter:off
+			http
+				.authorizeHttpRequests((authorize) -> authorize
+					.requestMatchers(mvc.matcher("/path/**")).hasRole("USER")
+				)
+				.httpBasic(withDefaults());
+			// @formatter:on
+
+			return http.build();
+		}
+
+	}
+
+	@Configuration
+	@EnableWebSecurity
+	@EnableWebMvc
+	static class PathPatternFactoryBeanConfig {
+
+		@Bean
+		SecurityFilterChain security(HttpSecurity http) throws Exception {
+			// @formatter:off
+			http
+				.authorizeHttpRequests((authorize) -> authorize
+					.requestMatchers("/path/**").hasRole("USER")
+				)
+				.httpBasic(withDefaults());
+			// @formatter:on
+
+			return http.build();
+		}
+
+		@Bean
+		PathPatternRequestMatcherBuilderFactoryBean pathPatternFactoryBean() {
+			return new PathPatternRequestMatcherBuilderFactoryBean();
 		}
 
 	}

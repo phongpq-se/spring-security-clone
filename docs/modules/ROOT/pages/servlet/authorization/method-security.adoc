@@ -108,13 +108,14 @@ Kotlin::
 open class MyCustomerService {
     @PreAuthorize("hasAuthority('permission:read')")
     @PostAuthorize("returnObject.owner == authentication.name")
-    fun readCustomer(val id: String): Customer { ... }
+    fun readCustomer(id: String): Customer { ... }
 }
 ----
 ======
 
 A given invocation to `MyCustomerService#readCustomer` may look something like this when Method Security <<activate-method-security,is activated>>:
 
+[.invert-dark]
 image::{figures}/methodsecurity.png[]
 
 1. Spring AOP invokes its proxy method for `readCustomer`. Among the proxy's other advisors, it invokes an javadoc:org.springframework.security.authorization.method.AuthorizationManagerBeforeMethodInterceptor[] that matches <<annotation-method-pointcuts,the `@PreAuthorize` pointcut>>
@@ -215,13 +216,15 @@ Java::
 ----
 @PreAuthorize("hasAuthority('permission:read') || hasRole('ADMIN')")
 ----
-======
 
-.Kotlin
-[source,kotlin,role="kotlin"]
+Kotlin::
++
+[source,kotlin,role="secondary"]
 ----
 @PreAuthorize("hasAuthority('permission:read') || hasRole('ADMIN')")
 ----
+======
+
 
 However, you could instead grant `permission:read` to those with `ROLE_ADMIN`.
 One way to do this is with a `RoleHierarchy` like so:
@@ -335,7 +338,7 @@ Kotlin::
 @Component
 open class BankService {
 	@PreAuthorize("hasRole('ADMIN')")
-	fun readAccount(val id: Long): Account {
+	fun readAccount(id: Long): Account {
         // ... is only invoked if the `Authentication` has the `ROLE_ADMIN` authority
 	}
 }
@@ -423,7 +426,7 @@ Kotlin::
 @Component
 open class BankService {
 	@PostAuthorize("returnObject.owner == authentication.name")
-	fun readAccount(val id: Long): Account {
+	fun readAccount(id: Long): Account {
         // ... is only returned if the `Account` belongs to the logged in user
 	}
 }
@@ -533,7 +536,7 @@ Kotlin::
 @Component
 open class BankService {
 	@RequireOwnership
-	fun readAccount(val id: Long): Account {
+	fun readAccount(id: Long): Account {
         // ... is only returned if the `Account` belongs to the logged in user
 	}
 }
@@ -694,7 +697,7 @@ Kotlin::
 ----
 @Component
 open class BankService {
-	@PreFilter("filterObject.owner == authentication.name")
+	@PostFilter("filterObject.owner == authentication.name")
 	fun readAccounts(vararg ids: String): Collection<Account> {
         // ... the return value will be filtered to only contain the accounts owned by the logged-in user
         return accounts
@@ -796,7 +799,7 @@ In-memory filtering can obviously be expensive, and so be considerate of whether
 === Authorizing Method Invocation with `@Secured`
 
 javadoc:org.springframework.security.access.annotation.Secured[format=annotation] is a legacy option for authorizing invocations.
-<<use-preauthorize,`@PreAuthorize`>> supercedes it and is recommended instead.
+<<use-preauthorize,`@PreAuthorize`>> supersedes it and is recommended instead.
 
 To use the `@Secured` annotation, you should first change your Method Security declaration to enable it like so:
 
@@ -990,7 +993,7 @@ Kotlin::
 @Component
 open class BankService {
 	@IsAdmin
-	fun readAccount(val id: Long): Account {
+	fun readAccount(id: Long): Account {
         // ... is only returned if the `Account` belongs to the logged in user
 	}
 }
@@ -1081,7 +1084,7 @@ Kotlin::
 @Component
 open class BankService {
 	@HasRole("ADMIN")
-	fun readAccount(val id: Long): Account {
+	fun readAccount(id: Long): Account {
         // ... is only returned if the `Account` belongs to the logged in user
 	}
 }
@@ -1141,7 +1144,7 @@ Kotlin::
 @Component
 open class BankService {
 	@HasAnyRole(roles = arrayOf("'USER'", "'ADMIN'"))
-	fun readAccount(val id: Long): Account {
+	fun readAccount(id: Long): Account {
         // ... is only returned if the `Account` belongs to the logged in user
 	}
 }
@@ -1268,7 +1271,7 @@ Kotlin::
 ----
 @Component("authz")
 open class AuthorizationLogic {
-    fun decide(val operations: MethodSecurityExpressionOperations): boolean {
+    fun decide(operations: MethodSecurityExpressionOperations): boolean {
         // ... authorization logic
     }
 }
@@ -1339,7 +1342,7 @@ Kotlin::
 ----
 @Component("authz")
 open class AuthorizationLogic {
-    fun decide(val operations: MethodSecurityExpressionOperations): AuthorizationDecision {
+    fun decide(operations: MethodSecurityExpressionOperations): AuthorizationDecision {
         // ... authorization logic
         return MyAuthorizationDecision(false, details)
     }
@@ -1432,13 +1435,13 @@ Kotlin::
 class MethodSecurityConfig {
    	@Bean
 	@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-	fun preAuthorize(val manager: MyAuthorizationManager) : Advisor {
+	fun preAuthorize(manager: MyAuthorizationManager) : Advisor {
 		return AuthorizationManagerBeforeMethodInterceptor.preAuthorize(manager)
 	}
 
 	@Bean
 	@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
-	fun postAuthorize(val manager: MyAuthorizationManager) : Advisor {
+	fun postAuthorize(manager: MyAuthorizationManager) : Advisor {
 		return AuthorizationManagerAfterMethodInterceptor.postAuthorize(manager)
 	}
 }
@@ -1498,7 +1501,7 @@ Kotlin::
 ----
 companion object {
 	@Bean
-	fun methodSecurityExpressionHandler(val roleHierarchy: RoleHierarchy) : MethodSecurityExpressionHandler {
+	fun methodSecurityExpressionHandler(roleHierarchy: RoleHierarchy) : MethodSecurityExpressionHandler {
 		val handler = DefaultMethodSecurityExpressionHandler()
 		handler.setRoleHierarchy(roleHierarchy)
 		return handler
@@ -1527,6 +1530,177 @@ We expose `MethodSecurityExpressionHandler` using a `static` method to ensure th
 ====
 
 You can also <<subclass-defaultmethodsecurityexpressionhandler,subclass `DefaultMessageSecurityExpressionHandler`>> to add your own custom authorization expressions beyond the defaults.
+
+[[pre-post-authorize-aot]]
+=== Working with AOT
+
+Spring Security will scan all beans in the application context for methods that use `@PreAuthorize` or `@PostAuthorize`.
+When it finds one, it will resolve any beans used inside the security expression and register the appropriate runtime hints for that bean.
+If it finds a method that uses `@AuthorizeReturnObject`, it will recursively search inside the method's return type for `@PreAuthorize` and `@PostAuthorize` annotations and register them accordingly.
+
+For example, consider the following Spring Boot application:
+
+[tabs]
+======
+Java::
++
+[source,java,role="primary"]
+----
+@Service
+public class AccountService { <1>
+
+    @PreAuthorize("@authz.decide()") <2>
+    @AuthorizeReturnObject <3>
+    public Account getAccountById(String accountId) {
+        // ...
+    }
+
+}
+
+public class Account {
+
+    private final String accountNumber;
+
+    // ...
+
+    @PreAuthorize("@accountAuthz.canViewAccountNumber()") <4>
+    public String getAccountNumber() {
+        return this.accountNumber;
+    }
+
+    @AuthorizeReturnObject <5>
+    public User getUser() {
+        return new User("John Doe");
+    }
+
+}
+
+public class User {
+
+    private final String fullName;
+
+    // ...
+
+    @PostAuthorize("@myOtherAuthz.decide()") <6>
+    public String getFullName() {
+        return this.fullName;
+    }
+
+}
+----
+
+Kotlin::
++
+[source,kotlin,role="secondary"]
+----
+@Service
+class AccountService { <1>
+
+    @PreAuthorize("@authz.decide()") <2>
+    @AuthorizeReturnObject <3>
+    fun getAccountById(accountId: String): Account {
+        // ...
+    }
+
+}
+
+class Account(private val accountNumber: String) {
+
+    @PreAuthorize("@accountAuthz.canViewAccountNumber()") <4>
+    fun getAccountNumber(): String {
+        return this.accountNumber
+    }
+
+    @AuthorizeReturnObject <5>
+    fun getUser(): User {
+        return User("John Doe")
+    }
+
+}
+
+class User(private val fullName: String) {
+
+    @PostAuthorize("@myOtherAuthz.decide()") <6>
+    fun getFullName(): String {
+        return this.fullName
+    }
+
+}
+----
+======
+
+<1> Spring Security finds the `AccountService` bean
+<2> Finding a method that uses `@PreAuthorize`, it will resolve any bean names used inside the expression, `authz` in that case, and register runtime hints for the bean class
+<3> Finding a method that uses `@AuthorizeReturnObject`, it will look into the method's return type for any `@PreAuthorize` or `@PostAuthorize`
+<4> Then, it finds a `@PreAuthorize` with another bean name: `accountAuthz`; the runtime hints are registered for the bean class as well
+<5> Finding another `@AuthorizeReturnObject` it will look again into the method's return type
+<6> Now, a `@PostAuthorize` is found with yet another bean name used: `myOtherAuthz`; the runtime hints are registered for the bean class as well
+
+There will be many times when Spring Security cannot determine the actual return type of the method ahead of time since it may be hidden in an erased generic type.
+
+Consider the following service:
+
+[tabs]
+======
+Java::
++
+[source,java,role="primary"]
+----
+@Service
+public class AccountService {
+
+    @AuthorizeReturnObject
+    public List<Account> getAllAccounts() {
+        // ...
+    }
+
+}
+----
+
+Kotlin::
++
+[source,kotlin,role="secondary"]
+----
+@Service
+class AccountService {
+
+    @AuthorizeReturnObject
+    fun getAllAccounts(): List<Account> {
+        // ...
+    }
+
+}
+----
+======
+
+In this case, the generic type is erased and so it isn’t apparent to Spring Security ahead-of-time that `Account` needs to be visited in order to check for `@PreAuthorize` and `@PostAuthorize`.
+
+To address this, you can publish a javadoc:org.springframework.security.aot.hint.PrePostAuthorizeExpressionBeanHintsRegistrar[`PrePostAuthorizeExpressionBeanHintsRegistrar`] like so:
+
+[tabs]
+======
+Java::
++
+[source,java,role="primary"]
+----
+@Bean
+@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+static SecurityHintsRegistrar registerTheseToo() {
+    return new PrePostAuthorizeExpressionBeanHintsRegistrar(Account.class);
+}
+----
+
+Kotlin::
++
+[source,kotlin,role="secondary"]
+----
+@Bean
+@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+fun registerTheseToo(): SecurityHintsRegistrar {
+    return PrePostAuthorizeExpressionBeanHintsRegistrar(Account::class.java)
+}
+----
+======
 
 [[use-aspectj]]
 == Authorizing with AspectJ
@@ -2105,11 +2279,6 @@ fun getEmailWhenProxiedThenAuthorizes() {
 ----
 ======
 
-[NOTE]
-====
-This feature does not yet support Spring AOT
-====
-
 === Proxying Collections
 
 `AuthorizationProxyFactory` supports Java collections, streams, arrays, optionals, and iterators by proxying the element type and maps by proxying the value type.
@@ -2296,6 +2465,165 @@ And if they do have that authority, they'll see:
 ====
 You can also add the Spring Boot property `spring.jackson.default-property-inclusion=non_null` to exclude the null value from serialization, if you also don't want to reveal the JSON key to an unauthorized user.
 ====
+
+[[authorize-return-object-aot]]
+=== Working with AOT
+
+Spring Security will scan all beans in the application context for methods that use `@AuthorizeReturnObject`.
+When it finds one, it will create and register the appropriate proxy class ahead of time.
+It will also recursively search for other nested objects that also use `@AuthorizeReturnObject` and register them accordingly.
+
+For example, consider the following Spring Boot application:
+
+[tabs]
+======
+Java::
++
+[source,java,role="primary"]
+----
+@SpringBootApplication
+public class MyApplication {
+	@RestController
+    public static class MyController { <1>
+		@GetMapping
+        @AuthorizeReturnObject
+        Message getMessage() { <2>
+			return new Message(someUser, "hello!");
+        }
+    }
+
+	public static class Message { <3>
+		User to;
+		String text;
+
+		// ...
+
+        @AuthorizeReturnObject
+        public User getTo() { <4>
+			return this.to;
+        }
+
+		// ...
+	}
+
+	public static class User { <5>
+		// ...
+	}
+
+	public static void main(String[] args) {
+		SpringApplication.run(MyApplication.class);
+	}
+}
+----
+
+Kotlin::
++
+[source,kotlin,role="secondary"]
+----
+@SpringBootApplication
+open class MyApplication {
+	@RestController
+    open class MyController { <1>
+		@GetMapping
+        @AuthorizeReturnObject
+        fun getMessage():Message { <2>
+			return Message(someUser, "hello!")
+        }
+    }
+
+	open class Message { <3>
+		val to: User
+		val test: String
+
+		// ...
+
+        @AuthorizeReturnObject
+        fun getTo(): User { <4>
+			return this.to
+        }
+
+		// ...
+	}
+
+	open class User { <5>
+		// ...
+	}
+
+	fun main(args: Array<String>) {
+		SpringApplication.run(MyApplication.class)
+	}
+}
+----
+======
+<1> - First, Spring Security finds the `MyController` bean
+<2> - Finding a method that uses `@AuthorizeReturnObject`, it proxies `Message`, the return value, and registers that proxy class to `RuntimeHints`
+<3> - Then, it traverses `Message` to see if it uses `@AuthorizeReturnObject`
+<4> - Finding a method that uses `@AuthorizeReturnObject`, it proxies `User`, the return value, and registers that proxy class to `RuntimeHints`
+<5> - Finally, it traverses `User` to see if it uses `@AuthorizeReturnObject`; finding nothing, the algorithm completes
+
+There will be many times when Spring Security cannot determine the proxy class ahead of time since it may be hidden in an erased generic type.
+
+Consider the following change to `MyController`:
+
+[tabs]
+======
+Java::
++
+[source,java,role="primary"]
+----
+@RestController
+public static class MyController {
+    @GetMapping
+    @AuthorizeReturnObject
+    List<Message> getMessages() {
+        return List.of(new Message(someUser, "hello!"));
+    }
+}
+----
+
+Kotlin::
++
+[source,kotlin,role="secondary"]
+----
+@RestController
+static class MyController {
+    @AuthorizeReturnObject
+    @GetMapping
+    fun getMessages(): Array<Message> = arrayOf(Message(someUser, "hello!"))
+}
+----
+======
+
+In this case, the generic type is erased and so it isn't apparent to Spring Security ahead-of-time that `Message` will need to be proxied at runtime.
+
+To address this, you can publish `AuthorizeProxyFactoryHintsRegistrar` like so:
+
+[tabs]
+======
+Java::
++
+[source,java,role="primary"]
+----
+@Bean
+@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+static SecurityHintsRegsitrar registerTheseToo(AuthorizationProxyFactory proxyFactory) {
+	return new AuthorizeReturnObjectHintsRegistrar(proxyFactory, Message.class);
+}
+----
+
+Kotlin::
++
+[source,kotlin,role="secondary"]
+----
+@Bean
+@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+fun registerTheseToo(proxyFactory: AuthorizationProxyFactory?): SecurityHintsRegistrar {
+    return AuthorizeReturnObjectHintsRegistrar(proxyFactory, Message::class.java)
+}
+----
+======
+
+Spring Security will register that class and then traverse its type as before.
 
 [[fallback-values-authorization-denied]]
 == Providing Fallback Values When Authorization is Denied
@@ -2908,7 +3236,7 @@ Kotlin::
 [source,kotlin,role="secondary"]
 ----
 class MyAuthorizer {
-	fun isAdmin(val root: MethodSecurityExpressionOperations): boolean {
+	fun isAdmin(root: MethodSecurityExpressionOperations): boolean {
 		val decision = root.hasAuthority("ADMIN");
 		// custom work ...
         return decision;
@@ -2967,7 +3295,7 @@ Kotlin::
 ----
 @Component
 class MyExpressionHandler: DefaultMethodSecurityExpressionHandler {
-    override fun createEvaluationContext(val authentication: Supplier<Authentication>,
+    override fun createEvaluationContext(authentication: Supplier<Authentication>,
         val mi: MethodInvocation): EvaluationContext {
 		val context = super.createEvaluationContext(authentication, mi) as StandardEvaluationContext
         val delegate = context.getRootObject().getValue() as MethodSecurityExpressionOperations

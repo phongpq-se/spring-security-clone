@@ -9,7 +9,7 @@ on:
   workflow_dispatch: # Manual trigger
 
 env:
-  DEVELOCITY_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_SECRET_ACCESS_KEY }}
+  DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
 
 permissions:
   contents: read
@@ -63,7 +63,7 @@ jobs:
           samples_branch=$(cat gradle.properties | grep "samplesBranch=" | awk -F'=' '{print $2}')
           ./gradlew publishMavenJavaPublicationToLocalRepository
           ./gradlew cloneRepository -PrepositoryName="spring-projects/spring-security-samples" -Pref="$samples_branch" -PcloneOutputDirectory="$SAMPLES_DIR"
-          ./gradlew --project-dir "$SAMPLES_DIR" --init-script spring-security-ci.gradle -PlocalRepositoryPath="$LOCAL_REPOSITORY_PATH" -PspringSecurityVersion="$version" check
+          ./gradlew --refresh-dependencies --project-dir "$SAMPLES_DIR" --init-script spring-security-ci.gradle -PlocalRepositoryPath="$LOCAL_REPOSITORY_PATH" -PspringSecurityVersion="$version" test integrationTest
   check-tangles:
     name: Check for Package Tangles
     runs-on: ubuntu-latest
@@ -79,7 +79,7 @@ jobs:
         env:
           STRUCTURE101_LICENSEID: ${{ secrets.STRUCTURE101_LICENSEID }}
         run: |
-          ./gradlew check s101 -Ps101.licenseId="$STRUCTURE101_LICENSEID" --stacktrace
+          ./gradlew assemble && ./gradlew s101 -Ps101.licenseId="$STRUCTURE101_LICENSEID" --stacktrace
   deploy-artifacts:
     name: Deploy Artifacts
     needs: [ build, test, check-samples, check-tangles ]
@@ -116,7 +116,7 @@ jobs:
   send-notification:
     name: Send Notification
     needs: [ perform-release ]
-    if: ${{ failure() || cancelled() }}
+    if: ${{ !success() }}
     runs-on: ubuntu-latest
     steps:
       - name: Send Notification

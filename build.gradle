@@ -106,8 +106,12 @@ develocity {
 }
 
 nohttp {
-	source.exclude "buildSrc/build/**"
+	source.exclude "buildSrc/build/**", "javascript/.gradle/**", "javascript/package-lock.json", "javascript/node_modules/**", "javascript/build/**", "javascript/dist/**"
 	source.builtBy(project(':spring-security-config').tasks.withType(RncToXsd))
+}
+
+tasks.named('checkstyleNohttp') {
+	maxHeapSize = '1g'
 }
 
 tasks.register('cloneRepository', IncludeRepoTask) {
